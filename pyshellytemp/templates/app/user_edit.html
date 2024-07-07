@@ -1,0 +1,22 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — User{% endblock %}
+{% block 'contents' %}
+<nav>
+<a href="{{ urlprefix }}/settings/">« Settings</a>
+</nav>
+<section>
+<h2>{% if form.user %}Edit user “{{ form.user.username }}”{% else %}New user{% endif %}</h2>
+<form method="post">
+<fieldset>
+{% if message %}<div class="message">{{ message }}</div>{% endif %}
+<label for="gname">Username:</label>
+<input type="text" id="username" name="username" value="{{ form.username }}" /><br />
+<label for="password">Password:</label>
+<input type="password" id="password" name="password" value="{{ form.password }}" /><br />
+<label for="confirm">Confirm:</label>
+<input type="password" id="confirm" name="confirm" value="{{ form.confirm }}" /><br />
+<input type="submit" name="send" value="{% if form.user %}Update{% else %}Create{% endif %}" />
+</fieldset>
+</form>
+</section>
+{% endblock %}

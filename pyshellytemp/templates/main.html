@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{% block 'title' %}PyShellyTemp{% endblock %}</title>
+<link rel="stylesheet" href="{{ urlprefix }}/static/style.css" />
+</head>
+<body>
+{% block 'body' %}
+<header>
+{% block 'login_box' %}
+<aside id="login_box">
+{% if user %}
+Connected as {{ user.username }}<br />
+<form method="post" action="{{ urlprefix }}/logout">
+<a href="{{ urlprefix }}/settings/">Settings</a>&nbsp;|&nbsp;<input class="link_like" type="submit" name="logout" value="Logout" />
+</form>
+{% else %}
+<a href="{{ urlprefix }}/login?next={{ urlpath }}">Login</a>
+{% endif %}
+</aside>
+{% endblock %}
+<h1><a href="{{ urlprefix }}/">PyShellyTemp</a></h1>
+</header>
+{% block 'contents' %}{% endblock %}
+{% endblock %}
+</body>
+</html>

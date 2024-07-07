@@ -1,0 +1,4 @@
+.DS_Store
+/test.sqlite3
+/coverage
+__pycache__

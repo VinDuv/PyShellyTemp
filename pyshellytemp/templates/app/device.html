@@ -1,0 +1,47 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Device{% endblock %}
+{% block 'contents' %}
+<nav>
+<a href="{{ urlprefix }}/settings/">« Settings</a>
+</nav>
+<section>
+<h2>Device “{{ device.name }}”</h2>
+<form method="post">
+{% if message %}<div class="message">{{ message }}</div>{% endif %}
+<table class="key_val">
+<tr><th colspan="2">Information</th></tr>
+<tr><td>Identifier</td><td>{{ device.ident }}</td></tr>
+<tr><td>Display name</td><td><input type="text" id="dev_name" name="dev_name" value="{{ form.name }}" /></td></tr>
+<tr><td>Last report</td><td>{{ device.last_report_disp }}</td></tr>
+<tr><td>Last refresh</td><td>{{ device.last_refresh_disp }}</td></tr>
+<tr><td>Last temperature</td><td>{{ device.temp }}</td></tr>
+<tr><td>Last humidity</td><td>{{ device.hum }}</td></tr>
+<tr><td>Report count (last 24h)</td><td>{{ device.day_report_count }}</td></tr>
+<tr><tr>
+<tr><th colspan="2">Status at last refresh</th></tr>
+<tr><td>Status</td><td>{{ device.status }}{% if device.need_config_set %}, will update settings at next refresh{% endif %}</td></tr>
+<tr><td>IP address</td><td>{{ device.ip_addr }}</td></tr>
+<tr><td>Battery</td><td>{{ device.bat_percent }} % ({{ device.bat_volt }} V)</td></tr>
+<tr><td>Update status</td><td style="font-family: monospace">{{ device.update_status }}</td></tr>
+<tr><td>Uptime</td><td>{{ device.uptime_disp }}</td></tr>
+<tr><td>RAM usage</td><td>{{ device.mem_usage }}</td></tr>
+<tr><td>Filesystem usage</td><td>{{ device.fs_usage }}</td></tr>
+<tr></tr>
+<tr><th colspan="2">Report thresholds configuration</th><tr>
+<tr><td>Temperature threshold</td><td><input type="text" id="temp_thresh" name="temp_thresh" value="{{ form.temp_thresh }}" /></td></tr>
+<tr><td>Humidity threshold</td><td><input type="text" id="hum_thresh" name="hum_thresh" value="{{ form.hum_thresh }}" /></td></tr>
+<tr></tr>
+<tr><th colspan="2">Sensor calibration configuration</th><tr>
+<tr><td>Temperature offset</td><td><input type="text" id="temp_off" name="temp_off" value="{{ form.temp_off }}" /></td></tr>
+<tr><td>Humidity offset</td><td><input type="text" id="hum_off" name="hum_off" value="{{ form.hum_off }}" /></td></tr>
+</table>
+<input type="submit" name="save" value="Save">
+<div class="help_text">
+Changes to the report thresholds and sensor calibration will be performed the
+next time the device wakes up and sends a report.<br />
+To perform the change immediately, wake up the device by briefly pressing its
+button after saving the changes.
+</div>
+</form>
+</section>
+{% endblock %}

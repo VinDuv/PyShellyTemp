@@ -1,0 +1,12 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Device identification{% endblock %}
+{% block 'contents' %}
+<section>
+<h2>Device identification</h2>
+Press a device’s button to be redirected to its settings page.<br />
+The device must be registered.
+<form method="post">
+<input type="submit" name="cancel" value="Cancel" />
+</form>
+</section>
+{% endblock %}

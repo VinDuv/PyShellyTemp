@@ -1,0 +1,18 @@
+{% extend 'main.html' %}
+{% block 'title' %}PyShellyTemp — Login{% endblock %}
+{% block 'login_box' %}{% endblock %}
+{% block 'contents' %}
+<section>
+<h1>Login</h1>
+<form method="post">
+<fieldset>
+{% if message %}<div class="message">{{ message }}</div>{% endif %}
+<label for="username">Username:</label>
+<input type="text" id="username" name="username" value="{{ username }}"  autofocus="autofocus" /><br />
+<label for="password">Password:</label>
+<input type="password" id="password" name="password" value="" /><br />
+<input type="submit" name="login" value="Login" />
+</fieldset>
+</form>
+</section>
+{% endblock %}

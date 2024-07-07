@@ -1,0 +1,14 @@
+{% extend 'main.html' %}
+{% block 'title' %}PyShellyTemp — Confirm{% endblock %}
+{% block 'contents' %}
+<section>
+<h1>Confirmation</h1>
+<form method="post">
+<fieldset>
+{{ message }}<br />
+<input type="submit" name="confirm_no" value="{{ confirm_no }}" />
+<input type="submit" name="confirm_yes" value="{{ confirm_yes }}" />
+</fieldset>
+</form>
+</section>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Settings{% endblock %}
+{% block 'contents' %}
+<section>
+<h2>Communication</h2>
+<fieldset>
+<form method="post">
+Device discovery: {% if disco_remaining > 0 %}
+Enabled, {{ disco_remaining }} minute(s) remaining
+<input type="submit" name="enable_disco" value="Extend duration" />
+<input type="submit" name="disable_disco" value="Disable" />
+{% else %}
+Disabled
+<input type="submit" name="enable_disco" value="Enable" />
+{% endif %}
+<div class="help_text">
+While discovery is enabled, Shelly H&amp;T devices that hit the report endpoint
+<span style="font-family: monospace; font-weight: bold">
+http://&lt;server address&gt;{{ urlprefix }}/report
+</span>
+will automatically be registered (if not already), and their data will start
+being recorded.<br />
+Once discovery is disabled, only already registered devices will be able to send
+report data.
+</div>
+</form>
+<hr />
+<form method="post">
+<label for="device_uname">Device login:</label>
+<input type="text" name="device_uname" id="device_uname" value="{{device_uname}}" /><br />
+<label for="device_uname">Device password:</label>
+<input type="password" name="device_pass" id="device_pass" value="{{device_pass}}" />
+<input type="submit" name="set_values" value="Set" />
+<div class="help_text">
+Username and password used to login on the Shelly device’s web interface. These
+are used to query the device’s status and change its settings automatically. All
+devices need to use the same username/password; this can be left blank if no
+authentication is needed.
+</div>
+</form>
+</fieldset>
+</section>
+<section>
+<h2>Devices</h2>
+<table>
+<tr>
+<th>Name</th><th>Identifier</th><th>Status</th><th>Last report</th><th>Last refresh</th><th>Battery</th><th>Operations</th>
+</tr>
+{% for device, mod_path, delete_path in device_info %}
+<tr>
+<td><a href="{{ mod_path }}">{{ device.name }}</a></td><td>{{ device.ident }}</td><td>{{ device.status }}</td>
+<td>{{ device.last_report_disp }}</td><td>{{ device.last_refresh_disp }}</td>
+<td>{{ device.bat_percent }} %</td><td><a href="{{ mod_path }}">Edit</a> • <a href="{{ delete_path }}">Delete</a></td>
+</tr>
+{% else %}
+<tr><td colspan="7">No registered device</td></tr>
+{% endfor %}
+</table>
+<form method="post" action="{{ urlprefix }}/settings/identify">
+<input type="submit" name="identify" value="Identify device" />
+</form>
+</section>
+<section>
+<h2>Users</h2>
+<table>
+<tr>
+<th>Username</th><th>Operations</th>
+</tr>
+{% for user, is_cur, mod_path, delete_path in user_info %}
+<tr>
+<td>{{ user.username }}</a></td>
+<td><a href="{{ mod_path }}">Edit</a>{% if not is_cur %} • <a href="{{ delete_path }}">Delete</a>{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+<a href="{{ urlprefix }}/settings/user/new" class="button_like">Add user</a>
+</section>
+{% endblock %}

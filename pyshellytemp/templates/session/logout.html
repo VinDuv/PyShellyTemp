@@ -1,0 +1,14 @@
+{% extend 'main.html' %}
+{% block 'title' %}PyShellyTemp — Logout{% endblock %}
+{% block 'login_box' %}{% endblock %}
+{% block 'contents' %}
+<section>
+<h1>Login</h1>
+<form method="post">
+<fieldset>
+Do you want to log out?<br />
+<input type="submit" name="logout" value="Log out" />
+</fieldset>
+</form>
+</section>
+{% endblock %}

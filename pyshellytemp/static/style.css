@@ -1,0 +1,145 @@
+* {
+	font-family: Verdana, Arial, sans-serif;
+	margin: 0;
+	padding: 0;
+}
+
+html {
+	font-size: 10pt;
+}
+
+header {
+	display: block;
+	padding: .5em 1em;
+	background: linear-gradient(0deg, #bbbbbb, #dddddd);
+	border-bottom: 1px solid #aaaaaa;
+}
+
+header h1 {
+	font-size: 2em;
+}
+
+a, a:visited, form input[type=submit].link_like, form input[type=submit].link_like:active, form input[type=button].link_like, form input[type=button].link_like:visited {
+	color: #1111ff;
+	text-decoration: underline;
+	cursor: pointer;
+	background: none;
+	border: none;
+	border-radius: 0;
+	vertical-align: baseline;
+	font-size: 1em;
+	margin: 0;
+	padding: 0;
+}
+
+header h1 a {
+	color: #000000 !important;
+	text-decoration: none;
+}
+
+section, nav {
+	padding: .5em 1em 0 1em;
+}
+
+section h1 {
+	font-size: 1.25em;
+}
+
+#login_box {
+	float: right;
+}
+
+fieldset {
+	margin: .5em 0 0 0;
+	max-width: 40em;
+	border: 1px solid #EEEEEE;
+	padding: 0 .5em;
+}
+
+form label, form input {
+	margin: .5em 0;
+}
+
+form label {
+	display: inline-block;
+	min-width: 6em;
+}
+
+form input[type=submit], form input[type=button], a.button_like, a.button_like:visited {
+	color: black;
+	text-decoration: none;
+	display: inline-block;
+	margin: .25em .25em .25em 0;
+	padding: .25em;
+	background: linear-gradient(0deg, #cccccc, #eeeeee);
+	border-radius: .25em;
+	border: 1px solid #b0b0b0;
+	font-size: .8em;
+	vertical-align: .1em;
+}
+
+form input[type=submit]:active, form input[type=button]:active, .button_like:active {
+	background: linear-gradient(0deg, #dddddd, #bbbbbb);
+}
+
+form .message {
+	margin: .5em 0;
+	font-weight: bold;
+}
+
+table {
+	margin: .5em .5em 0em 0em;
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+th {
+	background: linear-gradient(0deg, #dddddd, #eeeeee);
+}
+
+tr {
+	border: 1px solid #aaaaaa;
+}
+
+tr:empty {
+	height: .5em;
+	border-left: 0;
+	border-right: 0;
+}
+
+table.key_val td:nth-child(1) {
+	font-weight: bold;
+	padding-right: 1em;
+}
+
+table.key_val tr:nth-child(even) {
+	background-color: #F0F0F0;
+}
+
+td, th {
+	padding: .25em;
+	border: 1px solid #aaaaaa;
+}
+
+table.key_val td, table.key_val th {
+	min-width: 8em;
+	border: 0;
+}
+
+table input[type=text] {
+	border: thin dashed #888888;
+	margin: -0.25em 0;
+	font-size: 1em;
+	background: none;
+}
+
+hr {
+	margin: 1em 0 .5em 0;
+	border: 0;
+	border-top: 1px solid #EEEEEE;
+}
+
+.help_text {
+	font-size: .75em;
+	margin: .25em 0 .5em 0;
+}
