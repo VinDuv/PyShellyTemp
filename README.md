@@ -92,6 +92,7 @@ Configure `nginx`:
 location / {
 	include uwsgi_params;
 	uwsgi_pass unix:/run/pyshellytemp/pyshellytemp.sock;
+	uwsgi_param SCRIPT_NAME '';
 }
 
 location /static {
@@ -117,7 +118,7 @@ also adjust the `uwsgi` options so it sets `PATH_INFO` correctly:
 ExecStart=/usr/bin/uwsgi \
 	--socket /run/pyshellytemp/pyshellytemp.sock --chmod-socket=666 \
 	--enable-threads --disable-logging --plugin=python3 \
-	--pythonpath=/srv --mount=/some/path=pyshellytemp.app --manage-script-name
+	--pythonpath=/srv --mount=/some/path=pyshellytemp.app:application --manage-script-name
 ```
 
 Usage
