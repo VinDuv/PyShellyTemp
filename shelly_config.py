@@ -11,6 +11,7 @@ import argparse
 import base64
 import errno
 import getpass
+import ipaddress
 import json
 import time
 import typing
@@ -151,7 +152,6 @@ class DeviceConn:
                     if response.status == 200:
                         data = json.load(response)
 
-
                 dev_type = data.get('type', '<unknown>')
                 if dev_type != 'SHHT-1':
                     sys.exit(f"Wrong device type: {dev_type}")
@@ -245,6 +245,14 @@ class ServerConn:
                     socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
             except OSError as err:
                 print(f"Unable to resolve hostname: {err}")
+                continue
+
+            if not ipaddress.IPv4Address(ipaddress).is_private:
+                print(f"The IP address {ip_addr} from hostname {hostname} is "
+                    f"not a local IP address. You need to specify the "
+                    f"network-local address of the server so when the Shelly "
+                    f"devices connect to it, the server can determine their "
+                    f"adresses.")
                 continue
 
             conn = HTTPConnection(ip_addr, port, timeout=1)
