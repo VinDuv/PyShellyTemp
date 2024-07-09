@@ -236,6 +236,69 @@ class SessionTests(unittest.TestCase):
                 'Expires': 'Tue, 01 Feb 2000 00:00:00 GMT',
             })
 
+    def test_nonreg_session_disco_when_refresh(self):
+        with self._setup_framework():
+            @route('/')
+            def main(request):
+                return HTTPTextResponse(f"Need at least a route")
+
+            session.User.create_user('test', 'abcd')
+
+            mock_dt = create_autospec(datetime.datetime, spec_set=True)
+            cur_dt = self._utc_as_local(2000, 1, 1, 0, 0, 0)
+            mock_dt.configure_mock(**{
+                'now.return_value': cur_dt,
+                'fromtimestamp': datetime.datetime.fromtimestamp,
+            })
+
+            post = {'username': 'test', 'password': 'abcd'}
+            with patch('pyshellytemp.session.datetime.datetime', mock_dt):
+                res = do_req('/login', next='/', post=post)
+            res.check_redirect('302 Found', f'{URL_PREFIX}/')
+            set_cookie = res.headers['Set-Cookie']
+            cookie_data = self._dump_set_cookie(res)
+            sessid = cookie_data.pop('sessid')
+            self.assertEqual(cookie_data, {
+                'Domain': '127.0.0.1',
+                'Path': '/somewhere/',
+                'SameSite': 'Strict',
+                'HttpOnly': '',
+                'Expires': 'Mon, 31 Jan 2000 00:00:00 GMT',
+            })
+
+            sess = session.Session.get_one(sess_id=sessid)
+            self.assertEqual(sess.last_activity, cur_dt)
+
+            env = {
+                'HTTP_COOKIE': f'sessid={sessid}',
+            }
+
+            # Move forward in time so the cookie needs to be refreshed
+            cur_dt = self._utc_as_local(2000, 1, 2, 0, 0, 0)
+            mock_dt.now.return_value = self._utc_as_local(2000, 1, 2, 0, 0, 0)
+
+            # Access logout page
+            with patch('pyshellytemp.session.datetime.datetime', mock_dt):
+                res = do_req('/logout', env, post={'logout': "Logout"})
+
+            # Redirect to /
+            res.check_redirect('302 Found', f'{URL_PREFIX}/')
+
+            # Session cookie destroyed
+            self.assertEqual(self._dump_set_cookie(res), {
+                'sessid': '',
+                'Domain': '127.0.0.1',
+                'Path': '/somewhere/',
+                'SameSite': 'Strict',
+                'HttpOnly': '',
+                'Expires': 'Thu, 01 Jan 1970 00:00:00 GMT',
+            })
+
+            del env['HTTP_COOKIE']
+
+            # Database session destroyed
+            self.assertIsNone(session.Session.get_opt(sess_id=sessid))
+
     def test_user(self):
         with self._setup_framework():
             session.User.create_user('test', 'abcd')

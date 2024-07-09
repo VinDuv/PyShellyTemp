@@ -252,8 +252,9 @@ class View:
         response_headers = response.extra_headers
 
         for key, value in extra_headers.items():
-            assert key not in response_headers
-            response_headers[key] = value
+            # Extensions can not override headers set by the view
+            if key not in response_headers:
+                response_headers[key] = value
 
         return response
 
