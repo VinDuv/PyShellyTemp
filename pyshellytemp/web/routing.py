@@ -495,11 +495,16 @@ class Router:
         response.
         """
 
+        request: HTTPRequest | None = None
+
         try:
             request = HTTPRequest.from_req(environ)
             response = self.dispatch(request)
         except HTTPBaseError as err:
             response = err.response
+        finally:
+            if request is not None:
+                request.drain_request_body()
 
         headers = [
             ('Content-Type', response.content_type),

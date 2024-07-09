@@ -51,34 +51,46 @@ class WebTest(unittest.TestCase):
             form_data = request.post.get_form_data()
             return HTTPTextResponse("OK")
 
+        buf = io.BytesIO(b'test')
+
         env = {
             'REQUEST_METHOD': 'XXX',
-            'wsgi.input': NotImplemented,
+            'wsgi.input': buf,
         }
 
         do_req('/', env).check_msg("405 Method Not Allowed",
             "Unknown method 'XXX'")
+        self.assertEqual(buf.tell(), 0)
 
         env['REQUEST_METHOD'] = 'POST'
         do_req('/', env).check_msg("400 Bad Request",
             "Bad POST request headers")
+        self.assertEqual(buf.tell(), 0)
 
         env['CONTENT_TYPE'] = 'blah'
         env['CONTENT_LENGTH'] = 'blah'
 
         do_req('/', env).check_msg("400 Bad Request",
             "Bad POST request headers")
+        self.assertEqual(buf.tell(), 0)
 
         self.assertIs(form_data, ...)
 
         env['CONTENT_LENGTH'] = str(1024 * 1024)
+        buf.write(b'x' * 1024 * 1024)
+        buf.write(b'DONOTTOUCH')
+        buf.seek(0)
         do_req('/', env).check_msg("400 Bad Request",
             "Unexpected form type")
         self.assertIs(form_data, None)
+        self.assertEqual(buf.tell(), 1024 * 1024)
+        buf.seek(0)
 
         env['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
         do_req('/', env).check_msg("413 Request Entity Too Large",
             "Form too large")
+        self.assertEqual(buf.tell(), 1024 * 1024)
+        buf.seek(0)
 
         env['CONTENT_LENGTH'] = str(42)
         env['wsgi.input'] = io.BytesIO(b'abc')
@@ -102,6 +114,36 @@ class WebTest(unittest.TestCase):
         env['wsgi.input'] = data
         env['CONTENT_LENGTH'] = str(len(data.getvalue()))
         do_req('/', env).check_msg("200 OK", "OK")
+
+    def test_custom_post(self):
+        read_data = []
+
+        @route('/')
+        def request(request):
+            nonlocal read_data
+            post_input = request.post.post_input
+            read_data.append(post_input.read(5))
+            read_data.append(post_input.read())
+            read_data.append(post_input.read(5))
+
+            return HTTPTextResponse("OK")
+
+        buf = io.BytesIO(b'testtesttestBAD')
+
+        env = {
+            'REQUEST_METHOD': 'POST',
+            'CONTENT_TYPE': 'application/octet-stream',
+            'CONTENT_LENGTH': '12',
+            'wsgi.input': buf,
+        }
+
+        do_req('/', env).check_msg("200 OK", "OK")
+        self.assertEqual(read_data, [
+            b'testt',
+            b'esttest',
+            b''
+        ])
+        self.assertEqual(buf.tell(), 12)
 
     def test_cookie(self):
         cookie_data = ...
@@ -384,6 +426,7 @@ def _get_req_env(path, extra_env=(), post=None, **kwargs):
         'SERVER_NAME': '127.0.0.1',
         'SERVER_PORT': 80,
         'wsgi.url_scheme': 'http',
+        'wsgi.input': NotImplemented,
     }
 
     if post is not None:

@@ -6,9 +6,60 @@ from http import HTTPStatus, cookies
 from urllib.parse import parse_qs, urlencode
 import abc
 import dataclasses
+import io
 import typing
 
 from .response import HTTPError
+
+
+class RequestBodyWrapper(io.IOBase):
+    """
+    Wraps the wsgi.input file object to ensure that all available data from the
+    request, and no more, is read.
+    """
+
+    def __init__(self, file_obj: typing.BinaryIO, length: int) -> None:
+        super().__init__()
+        self._file_obj = file_obj
+        self._remaining = max(0, length)
+
+    def read(self, size: int = -1, /) -> bytes:
+        """
+        Read size bytes from the input and return them. If the size is not
+        specified or negative, returns the rest of the input.
+        This may return less data than expected if the request body was
+        truncated or if no data is available.
+        """
+
+        if size < 0:
+            size = self._remaining
+
+        return b''.join(self._read_bytes(size))
+
+    def close(self) -> None:
+        for _ in self._read_bytes(self._remaining):
+            pass
+
+        super().close()
+
+    def _read_bytes(self, size: int) -> typing.Iterable[bytes]:
+        """
+        Yields parts of the remaining data in the request body, until the
+        request size was read. This may return a short read if the request
+        body was truncated.
+        """
+
+        while size > 0:
+            data = self._file_obj.read(min(self._remaining, size))
+            if not data:
+                # Truncated request body
+                self._remaining = 0
+                break
+
+            data_len = len(data)
+            self._remaining -= data_len
+            size -= data_len
+            yield data
 
 
 @dataclasses.dataclass(frozen=True)
@@ -21,7 +72,7 @@ class POSTData:
 
     content_type: str
     content_length: int
-    post_input: typing.BinaryIO
+    post_input: RequestBodyWrapper
 
     def get_form_data(self) -> dict[str, str]:
         """
@@ -38,6 +89,8 @@ class POSTData:
                 "Form too large")
 
         data = self.post_input.read(self.content_length)
+
+        assert data is not None
 
         if len(data) != self.content_length:
             raise HTTPError(HTTPStatus.BAD_REQUEST, "Truncated request content")
@@ -63,20 +116,26 @@ class POSTData:
         an HTTPError is raised.
         """
 
-        if environ['REQUEST_METHOD'] != 'POST':
-            return None
+        content_type = environ.get('CONTENT_TYPE', '')
 
         try:
-            content_type = environ['CONTENT_TYPE']
-            content_length = int(environ['CONTENT_LENGTH'])
-        except (KeyError, ValueError):
-            content_type = ''
+            content_length = int(environ.get('CONTENT_LENGTH', '-1'))
+        except ValueError:
             content_length = -1
 
+        wrapper = RequestBodyWrapper(environ['wsgi.input'], content_length)
+
+        if environ['REQUEST_METHOD'] != 'POST':
+            # If data was given with the GET request (??), drain the wrapper
+            wrapper.close()
+            return None
+
+
         if not content_type or content_length < 0:
+            wrapper.close()
             raise HTTPError(HTTPStatus.BAD_REQUEST, "Bad POST request headers")
 
-        return cls(content_type, content_length, environ['wsgi.input'])
+        return cls(content_type, content_length, wrapper)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,8 +275,12 @@ class HTTPRequest:
         Creates a request object from the specified request environment.
         """
 
+        post = POSTData.from_req(environ)
+
         method: str = environ['REQUEST_METHOD']
         if method not in {'GET', 'POST'}:
+            # If there were data in the request, it was already drained
+            # by POSTData.from_req.
             raise HTTPError(HTTPStatus.METHOD_NOT_ALLOWED,
                 f"Unknown method {method!r}")
 
@@ -235,8 +298,6 @@ class HTTPRequest:
 
             key = '-'.join(part.title() for part in parts[1:])
             headers[key] = value
-
-        post = POSTData.from_req(environ)
 
         query = {
             key: values[0]
@@ -295,3 +356,12 @@ class HTTPRequest:
             ext_data.put_into_context(context)
 
         return context
+
+    def drain_request_body(self) -> None:
+        """
+        Finishes reading the request body, if any.
+        """
+
+        post = self.post
+        if post is not None:
+            post.post_input.close()
