@@ -67,11 +67,11 @@ class Settings(DBObject, table='settings'):
         except KeyError:
             settings = cls.new_empty()
             settings.id = 1
-            settings.discover_until = datetime.datetime(1900, 1, 1)
+            settings.discover_until = datetime.datetime(2000, 1, 1)
             settings.dev_username = ''
             settings.dev_password = ''
             settings.dev_identify = ''
-            settings.identify_until = datetime.datetime(1900, 1, 1)
+            settings.identify_until = datetime.datetime(2000, 1, 1)
             settings.save()
 
             return settings
