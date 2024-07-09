@@ -121,6 +121,19 @@ ExecStart=/usr/bin/uwsgi \
 	--pythonpath=/srv --mount=/some/path=pyshellytemp.app:application --manage-script-name
 ```
 
+Environment variables
+---------------------
+
+PyShellyTemp recognize the following environment variables:
+- `AUTH_PBKDF2_ROUNDS`: Number of PBKDF2 rounds used to hash user passwords. A
+  higher value is safer but will slow down login and password change operations.
+  It is recommended to not set it and let PyShellyTemp use its default value,
+  unless doing this severely impacts performance. Changing this value will only
+  affect user accounts after they change their passwords.
+
+When using `uwsgi`, use the `--env <variable>=<value>` to set an environment
+variable.
+
 Usage
 -----
 

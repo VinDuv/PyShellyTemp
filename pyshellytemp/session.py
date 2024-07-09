@@ -29,6 +29,9 @@ SESSION_COOKIE_NAME = 'sessid'
 # Max time between session uses before it is discarded
 SESSION_EXPIRY_DELAY = datetime.timedelta(days=30)
 
+# Number of PBKDF2 rounds (can be set by environment variable)
+PBKDF2_ROUNDS = int(os.environ.get('AUTH_PBKDF2_ROUNDS', '500000'))
+
 
 class User(DBObject, table='users'):
     """
@@ -93,9 +96,9 @@ class User(DBObject, table='users'):
 
         salt = os.urandom(16)
         pwd_hash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), salt,
-            500_000)
+            PBKDF2_ROUNDS)
 
-        return f'X${salt.hex()}${pwd_hash.hex()}'
+        return f'X{PBKDF2_ROUNDS}${salt.hex()}${pwd_hash.hex()}'
 
     @staticmethod
     def _check_password(password: str, pwd_hash: str) -> bool:
@@ -108,11 +111,13 @@ class User(DBObject, table='users'):
         salt = bytes.fromhex(salt_hex)
         expected_hash = bytes.fromhex(pwd_hash_hex)
 
-        if algo != 'X':
+        if algo[0] != 'X':
             raise AssertionError(f"Unknown algorithm {algo}")
 
+        rounds = int(algo[1:]) if algo[1:] else 500_000
+
         calc_hash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'),
-            salt, 500_000)
+            salt, rounds)
 
         return hmac.compare_digest(expected_hash, calc_hash)
 
