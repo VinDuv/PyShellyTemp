@@ -255,7 +255,7 @@ class ServerConn:
                     f"adresses.")
                 continue
 
-            conn = HTTPConnection(ip_addr, port, timeout=1)
+            conn = HTTPConnection(ip_addr, port, timeout=10)
             try:
                 cls._send_req(conn, base_path + '/autoconf', username='',
                 password='')
