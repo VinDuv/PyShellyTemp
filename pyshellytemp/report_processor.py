@@ -93,9 +93,9 @@ class ReportProcessor:
         LOGGER.debug("Processor thread procedure started")
         while True:
             if update_status:
-                # Need to fetch update status from a device, do it after 5
+                # Need to fetch update status from a device, do it after 30
                 # seconds of idle
-                timeout = 5
+                timeout = 30
             else:
                 timeout = None
 
