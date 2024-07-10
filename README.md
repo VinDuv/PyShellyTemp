@@ -156,9 +156,9 @@ The main settings page is in three parts:
     discovery. When enabled, during 10 minutes, any Shelly device that sends a
     report will be automatically registered.
   - PyShellyTemp regularly queries devices to fetch their status (battery level,
-    uptime, sensor state, …). This is done using an API that can be password
-    protected on the Shelly device; if this is the case, all devices must use
-    the same credentials, and it must be set in PyShellyTemp settings.
+    sensor state, …). This is done using an API that can be password protected
+    on the Shelly device; if this is the case, all devices must use the same
+    credentials, and it must be set in PyShellyTemp settings.
 - Devices: shows all registered devices, with their custom name and status. It
   allows editing or deleting a device.
   - The device settings pages shows the detailed status of the device, and

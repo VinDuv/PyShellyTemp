@@ -160,9 +160,6 @@ class Device(DBObject, table='devices'):
     fs_size: int
     fs_free: int
 
-    # Uptime in seconds
-    uptime: int
-
     # Update thresholds
     temp_thresh: float
     hum_thresh: float
@@ -194,16 +191,6 @@ class Device(DBObject, table='devices'):
     def last_refresh_disp(self) -> str:
         "Human-readable last refresh date"
         return self.last_refresh.strftime('%d/%m/%Y %H:%M:%S')
-
-    @property
-    def uptime_disp(self) -> str:
-        "Human-readable uptime"
-
-        days, rest = divmod(self.uptime, 86400)
-        hours, rest = divmod(rest, 3600)
-        minutes, _ = divmod(rest, 60)
-
-        return f"{days}d {hours}h {minutes}m"
 
     @property
     def mem_usage(self) -> str:

@@ -286,7 +286,6 @@ class ReportProcessor:
         device.mem_free = cls._get_int(json_data, 'ram_free', min_v=0)
         device.fs_size = cls._get_int(json_data, 'fs_size', min_v=0)
         device.fs_free = cls._get_int(json_data, 'fs_free', min_v=0)
-        device.uptime = cls._get_int(json_data, 'uptime', min_v=0)
 
         mac_addr = cls._get_str(json_data, 'mac', pattern=cls.MAC_RE)
 
