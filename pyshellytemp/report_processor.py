@@ -87,19 +87,39 @@ class ReportProcessor:
         Processes requests put in the queue.
         """
 
+        # Devices that need an update of their update status
+        update_status: list[Device] = []
+
         LOGGER.debug("Processor thread procedure started")
         while True:
-            item = req_queue.get()
+            if update_status:
+                # Need to fetch update status from a device, do it after 5
+                # seconds of idle
+                timeout = 5
+            else:
+                timeout = None
+
+            try:
+                item = req_queue.get(timeout=timeout)
+            except queue.Empty:
+                # Timeout, perform update status fetch for all devices
+                settings = Settings.get()
+                for device in update_status:
+                    cls._fetch_dev_update_status(device, settings)
+                update_status.clear()
+                continue
+
             if item is None:
                 LOGGER.debug("Processor thread procedure exiting")
                 return
 
             ident, addr, info = item
 
-            cls._process_report(ident, addr, info)
+            cls._process_report(ident, addr, info, update_status)
 
     @classmethod
-    def _process_report(cls, ident: str, addr: str, info: Info) -> None:
+    def _process_report(cls, ident: str, addr: str, info: Info,
+        update_status: list[Device]) -> None:
         """
         Processes a report (on a background thread).
         """
@@ -110,11 +130,12 @@ class ReportProcessor:
         if device is None:
             LOGGER.debug("Processing unregistered device %s (IP %s)",
                 ident, addr)
-            device = cls._handle_unknown_device(addr, ident, req_date)
+            device = cls._handle_unknown_device(addr, ident, req_date,
+                update_status)
         else:
             LOGGER.debug("Processing registered device %s (IP %s)",
                 device.name, addr)
-            cls._handle_device(device, addr, req_date)
+            cls._handle_device(device, addr, req_date, update_status)
 
         if device is None:
             return
@@ -127,7 +148,8 @@ class ReportProcessor:
 
     @classmethod
     def _handle_unknown_device(cls, addr: str, ident: str,
-        req_date: datetime.datetime) -> Device | None:
+        req_date: datetime.datetime, update_status: list[Device]) -> \
+        Device | None:
         """
         Handles a device whose identifier is not registered in the database yet.
         Creates a Device object and completes it. If it is valid, returns it.
@@ -137,6 +159,7 @@ class ReportProcessor:
 
         device = Device.new_empty()
         device.name = ident
+        device.ip_addr = addr
         device.last_report = req_date
         device.last_refresh = req_date
 
@@ -147,7 +170,7 @@ class ReportProcessor:
             return None
 
         try:
-            mac_addr, status, _ = cls._query_device_info(device, addr, settings)
+            mac_addr, status, _ = cls._query_device_info(device, settings)
         except cls.QueryError as err:
             LOGGER.warning("Cannot register device %s (%s): %s", ident, addr,
                 err)
@@ -161,16 +184,19 @@ class ReportProcessor:
         device.need_config_set = False
         device.ident = ident
         device.status = status
-        device.ip_addr = addr
+        device.update_status = 'unknown'
 
         LOGGER.info("Registered device %s (%s), status %s",
             ident, addr, status.name)
+
+        # Need to fetch update status later
+        update_status.append(device)
 
         return device
 
     @classmethod
     def _handle_device(cls, device: Device, addr: str,
-        req_date: datetime.datetime) -> None:
+        req_date: datetime.datetime, update_status: list[Device]) -> None:
         """
         Handles an already registered device. Updates the device info. The
         device must be saved to the database afterwards.
@@ -213,11 +239,11 @@ class ReportProcessor:
 
         if need_refresh:
             try:
-                _, status, button_act = cls._query_device_info(device, addr,
-                    settings, set_config)
+                _, status, button_act = cls._query_device_info(device, settings,
+                set_config)
             except cls.QueryError as err:
                 LOGGER.warning("Error querying device %s (%s): %s", device.name,
-                    addr, err)
+                    device.ip_addr, err)
                 status = err.status
             else:
                 # No error
@@ -232,11 +258,14 @@ class ReportProcessor:
                     settings.dev_identify = device.ident
                     settings.save()
 
+            # Need to fetch update status later
+            update_status.append(device)
+
         device.last_report = req_date
         device.status = status
 
     @classmethod
-    def _query_device_info(cls, device: Device, addr: str, settings: Settings,
+    def _query_device_info(cls, device: Device, settings: Settings,
         set_config: QueryDict | None = None) -> QueryRes:
         """
         Queries the device properties and configuration and update the device
@@ -247,7 +276,7 @@ class ReportProcessor:
         and a boolean indicating if the device was woken up by its button.
         """
 
-        conn = HTTPConnection(addr, timeout=1)
+        conn = HTTPConnection(device.ip_addr, timeout=1)
         try:
             return cls._query_dev_info_with_conn(conn, device, settings,
                 set_config)
@@ -265,22 +294,13 @@ class ReportProcessor:
         and a boolean indicating if the device was woken up by its button.
         """
 
-        if settings.dev_username or settings.dev_password:
-            auth_str = f'{settings.dev_username}:{settings.dev_password}'
-            auth_64 = base64.b64encode(auth_str.encode('utf-8')).decode('ascii')
-            headers = {
-                'Authorization': f'Basic {auth_64}',
-            }
-        else:
-            headers = {}
-
+        headers = cls._get_auth_headers(settings)
         json_data = cls._query(conn, '/status', headers)
 
         device.bat_percent = cls._get_float(json_data, 'bat', 'value',
             min_v=0.0, max_v=100.0)
         device.bat_volt = cls._get_float(json_data, 'bat', 'voltage',
             min_v=0.0)
-        device.update_status = cls._get_str(json_data, 'update', 'status')
 
         device.mem_total = cls._get_int(json_data, 'ram_total', min_v=0)
         device.mem_free = cls._get_int(json_data, 'ram_free', min_v=0)
@@ -315,6 +335,50 @@ class ReportProcessor:
             min_v=0.0)
 
         return mac_addr, status, button_act
+
+    @classmethod
+    def _fetch_dev_update_status(cls, device: Device, settings: Settings) -> \
+        None:
+        """
+        Fetches the device update status. This is done separately from the rest
+        of the updates because the Shelly H&T device takes a couple seconds to
+        determine its update status after waking up, but the rest should be
+        updated immediately so that device identification works, for instance.
+        """
+
+        LOGGER.debug("Fetching update status of %s", device.name)
+
+        conn = HTTPConnection(device.ip_addr, timeout=1)
+        try:
+            headers = cls._get_auth_headers(settings)
+            json_data = cls._query(conn, '/status', headers)
+            device.update_status = cls._get_str(json_data, 'update', 'status')
+
+        except cls.QueryError as err:
+            LOGGER.warning("Error querying update status of device %s: %s",
+                device.name, err)
+            device.update_status = '<error>'
+            device.status = err.status
+        finally:
+            conn.close()
+
+        device.save()
+
+    @staticmethod
+    def _get_auth_headers(settings: Settings) -> dict[str, str]:
+        """
+        Return the authentication headers required to perform a status fetch
+        on the device.
+        """
+
+        if settings.dev_username or settings.dev_password:
+            auth_str = f'{settings.dev_username}:{settings.dev_password}'
+            auth_64 = base64.b64encode(auth_str.encode('utf-8')).decode('ascii')
+            return {
+                'Authorization': f'Basic {auth_64}',
+            }
+
+        return {}
 
     @classmethod
     def _query(cls, conn: HTTPConnection, path: str, headers: dict[str, str],
