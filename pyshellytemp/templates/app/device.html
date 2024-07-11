@@ -21,6 +21,7 @@
 <tr><th colspan="2">Status at last refresh</th></tr>
 <tr><td>Status</td><td>{{ device.status }}{% if device.need_config_set %}, will update settings at next refresh{% endif %}</td></tr>
 <tr><td>IP address</td><td>{{ device.ip_addr }}</td></tr>
+<tr><td>Wi-Fi signal</td><td>{{ device.wifi_rssi_disp }}</td></tr>
 <tr><td>Battery</td><td>{{ device.bat_percent }} % ({{ device.bat_volt }} V)</td></tr>
 <tr><td>Update status</td><td style="font-family: monospace">{{ device.update_status }}</td></tr>
 <tr><td>RAM usage</td><td>{{ device.mem_usage }}</td></tr>

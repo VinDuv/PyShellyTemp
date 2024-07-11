@@ -302,6 +302,9 @@ class ReportProcessor:
         device.bat_volt = cls._get_float(json_data, 'bat', 'voltage',
             min_v=0.0)
 
+        device.wifi_rssi = cls._get_int(json_data, 'wifi_sta', 'rssi',
+            min_v=-100, max_v=0)
+
         device.mem_total = cls._get_int(json_data, 'ram_total', min_v=0)
         device.mem_free = cls._get_int(json_data, 'ram_free', min_v=0)
         device.fs_size = cls._get_int(json_data, 'fs_size', min_v=0)

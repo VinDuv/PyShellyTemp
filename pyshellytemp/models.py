@@ -152,6 +152,9 @@ class Device(DBObject, table='devices'):
     # Update status
     update_status: str
 
+    # Wifi RSSI
+    wifi_rssi: int
+
     # Memory total and free
     mem_total: int
     mem_free: int
@@ -191,6 +194,23 @@ class Device(DBObject, table='devices'):
     def last_refresh_disp(self) -> str:
         "Human-readable last refresh date"
         return self.last_refresh.strftime('%d/%m/%Y %H:%M:%S')
+
+    @property
+    def wifi_rssi_disp(self) -> str:
+        "Human-readable Wi-Fi strength"
+        rssi = self.wifi_rssi
+        if rssi >= -30:
+            strength = "Excellent"
+        elif rssi >= -67:
+            strength = "Very good"
+        elif rssi >= -70:
+            strength = "Good"
+        elif rssi >= -80:
+            strength = "Bad"
+        else:
+            strength = "Very bad"
+
+        return f"{strength} (RSSI {rssi})"
 
     @property
     def mem_usage(self) -> str:
