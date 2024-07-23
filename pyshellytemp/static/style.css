@@ -65,7 +65,7 @@ form label {
 	min-width: 6em;
 }
 
-form input[type=submit], form input[type=button], a.button_like, a.button_like:visited {
+form input[type=submit], form input[type=button], button, a.button_like, a.button_like:visited {
 	color: black;
 	text-decoration: none;
 	display: inline-block;
@@ -78,7 +78,7 @@ form input[type=submit], form input[type=button], a.button_like, a.button_like:v
 	vertical-align: .1em;
 }
 
-form input[type=submit]:active, form input[type=button]:active, .button_like:active {
+form input[type=submit]:active, form input[type=button]:active, button:active, .button_like:active {
 	background: linear-gradient(0deg, #dddddd, #bbbbbb);
 }
 
@@ -142,4 +142,12 @@ hr {
 .help_text {
 	font-size: .75em;
 	margin: .25em 0 .5em 0;
+}
+
+canvas {
+	margin: .5em 0;
+}
+
+aside.buttonbar {
+	display: block;
 }
