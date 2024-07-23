@@ -13,12 +13,12 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device
+from .models import Settings, Device, Report
 from .report_processor import ReportProcessor, DEV_IDENTIFY_IDENT
 from .session import no_session, login_required, SessionData, User
 from .util import render, join_lines, float_or_default
 from .web import route, redirect_to_view, HTTPRequest, HTTPResponse, view_path
-from .web import HTTPFileResponse, HTTPTextResponse, HTTPBaseError
+from .web import HTTPFileResponse, HTTPTextResponse, HTTPBaseError, HTTPError
 
 # Delay before considering sensor info obsolete
 OBSOLETE_INTERVAL = datetime.timedelta(hours=24)
@@ -572,6 +572,61 @@ class ReportHandler:
 
             super().__init__(response)
 
+
+class DevData(typing.TypedDict):
+    """
+    Dictionary containing data from a device, to be JSON serialized.
+    """
+
+    name: str
+    tstamps: list[int]
+    temps: list[float]
+    hums: list[int]
+
+
+@route('/data')
+def data_view(request: HTTPRequest) -> HTTPResponse:
+    """
+    Returns sensor data for graph building
+    """
+
+    try:
+        start = datetime.datetime.fromtimestamp(int(request.query['start']),
+            datetime.timezone.utc)
+        end = datetime.datetime.fromtimestamp(int(request.query['end']),
+            datetime.timezone.utc)
+    except (KeyError, ValueError, OverflowError):
+        start = None
+        end = None
+
+    if start is None or end is None or end < start:
+        raise HTTPError(HTTPStatus.BAD_REQUEST, "Missing or invalid query "
+            "parameters")
+
+    dev_results: dict[int, DevData] = {
+        device.id: {
+            'name': device.name,
+            'tstamps': [],
+            'temps': [],
+            'hums': [],
+        }
+        for device in Device.get_all().order_by('name')
+    }
+
+    query = Report.get_all(tstamp__gte=start, tstamp__lte=end)
+    query = query.order_by('+tstamp')
+    res = query.get_raw_fields('device_id', 'tstamp', 'temp', 'hum')
+    for dev_id, tstamp, temp, hum in res:
+        dev_data = dev_results[dev_id]
+        dev_data['tstamps'].append(int(tstamp))
+        dev_data['temps'].append(temp)
+        dev_data['hums'].append(int(hum))
+
+    results = list(dev_results.values())
+
+    str_results = json.dumps(results, separators=(',', ':')) + '\n'
+
+    return HTTPTextResponse(str_results, content_type='application/json')
 
 @no_session
 @route('/autoconf')
