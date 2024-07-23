@@ -2,7 +2,7 @@
 ORM tests
 """
 
-from unittest.mock import call, patch, MagicMock
+from unittest.mock import call, patch, MagicMock, sentinel
 from copy import deepcopy
 import datetime
 import enum
@@ -262,6 +262,34 @@ class ORMTests(unittest.TestCase):
             str_val="A",
             float_val=1.0,
         )
+
+        # Complex raw fetch
+        mock_db.reset_mock()
+        mock_db.select.return_value = sentinel.raw_fetch_res
+
+        data = TestData1.get_all(bool_val=True).filter(enum_val=
+            SomeEnum.VAL1, str_val__lt="B", float_val__gte=1.0)[1:10].order_by(
+                'str_val', '-float_val').get_raw_fields('id', 'float_val')
+        mock_db.select.assert_called_once_with(
+            ('id', 'float_val'),
+            DBQuery(
+                table_name='testdata1',
+                filter=[
+                    ('bool_val', DBCmpOp.EQ, 1),
+                    ('enum_val', DBCmpOp.EQ, 1),
+                    ('str_val', DBCmpOp.LT, "B"),
+                    ('float_val', DBCmpOp.GTE, 1.0),
+                ],
+                order=[
+                    ('str_val', DBOrder.ASC),
+                    ('float_val', DBOrder.DESC),
+                ],
+                max_count=9,
+                offset=1,
+            ),
+        )
+
+        self.assertIs(data, sentinel.raw_fetch_res)
 
         # Complex count
         mock_db.reset_mock()

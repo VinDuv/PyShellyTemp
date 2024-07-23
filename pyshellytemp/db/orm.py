@@ -8,7 +8,7 @@ import types
 import typing
 
 from .access import DBCmpOp, DBField, DBOrder, DBValue, DBQuery, DBUniqueError
-from .access import Database, database
+from .access import Database, database, SelectRes
 from .fields import DBObjectBase, RawField, ORMField, ORMIDField
 from .fields import field, unique
 
@@ -18,6 +18,7 @@ AnyDict: typing.TypeAlias = dict[str, typing.Any]
 ModDict: typing.TypeAlias = dict[str, DBValue]
 DBObjTy = typing.TypeVar('DBObjTy', bound='DBObject')
 RawFieldAttrsDict: typing.TypeAlias = dict[str, RawField[typing.Any]]
+RawRowsIter: typing.TypeAlias = typing.Iterable[typing.Iterable[typing.Any]]
 
 
 @dataclasses.dataclass(slots=True)
@@ -244,6 +245,21 @@ class TableDef(typing.Generic[DBObjTy]):
         query = self._build_query(py_filter, order, limit, offset)
         for row in database.select(self.db_cols, query):
             yield self._obj_from_db(row)
+
+    def get_raw(self, py_filter: AnyDict, order: list[str],
+        lim_off: typing.Tuple[int, int], fields: typing.Iterable[str]) -> \
+        SelectRes:
+        """
+        Searches the database in a similar way to get_matching, but instead of
+        yielding objects, yields iterables of raw database values for the
+        specified fields.
+        """
+
+        self._setup_if_needed()
+
+        limit, offset = lim_off
+        query = self._build_query(py_filter, order, limit, offset)
+        return database.select(fields, query)
 
     def count_matching(self, py_filter: AnyDict, order: list[str], limit: int,
         offset: int) -> int:
@@ -688,6 +704,15 @@ class Query(typing.Iterable[DBObjTy]):
 
         return Query(self.target_def, self.where, new_order, self.limit,
             self.offset)
+
+    def get_raw_fields(self, *fields: str) -> RawRowsIter:
+        """
+        Returns raw values for the database, as an iterable of iterables over
+        the specified fields.
+        """
+
+        return self.target_def.get_raw(self.where, self.order,
+            (self.limit, self.offset), fields)
 
     def __getitem__(self, key: slice) -> 'Query[DBObjTy]':
         """
