@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>{% block 'title' %}PyShellyTemp{% endblock %}</title>
-<link rel="stylesheet" href="{{ urlprefix }}/static/style.css" />
+<link rel="stylesheet" href="{{ urlprefix }}/static/style.css" />{% block 'head' %}{% endblock %}
 </head>
 <body>
 {% block 'body' %}
