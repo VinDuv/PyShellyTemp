@@ -1,4 +1,8 @@
 {% extend "main.html" %}
+{% block 'head' %}
+<script src="{{ urlprefix }}/static/graph.js" defer="defer"></script>
+<script src="{{ urlprefix }}/static/history.js" defer="defer"></script>
+{% endblock %}
 {% block 'contents' %}
 <section>
 <h2>Current sensor values</h2>
@@ -20,5 +24,18 @@
 <tr><td colspan="3">No registered sensor. Access the settings to add one.</td></tr>
 {% endfor %}
 </table>
+</section>
+<section>
+<h2>History</h2>
+<canvas id="history" width="1024" height="400">JS canvas is not supported by the browser.</canvas>
+<aside class="buttonbar">
+<button id="history-zoom-plus">Zoom+</button><button id="history-zoom-minus">Zoom-</button>
+<button id="history-left">«</button><button id="history-right">»</button>
+<button id="history-1d">1 day</button><button id="history-1m">1 month</button><button id="history-1y">1 year</button>
+<button id="history-export">Download</button>
+<label><input type="radio" name="mode" id="mode-temp" checked="checked" />Temperature</label>
+<label><input type="radio" name="mode" id="mode-hum" />Humidity</label>
+<label><input type="radio" name="mode" id="mode-both" />Both</label>
+</aside>
 </section>
 {% endblock %}
