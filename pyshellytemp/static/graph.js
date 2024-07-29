@@ -23,10 +23,12 @@ class LineGraph {
 		this.axisLabelFont = '10pt Verdana, Arial, sans-serif';
 		this.axisValueFont = '8pt Verdana, Arial, sans-serif';
 		this.legendFont = this.axisValueFont;
+		this.legendFont = this.axisValueFont;
 		this.gridColor = '#999999';
 		this.subGridColor = '#CCCCCC';
 		this.textColor = '#000000';
 		this.marginPx = 5;
+		this.legendOffset = 15;
 
 		// Time range
 		this.endTimeMs = Date.now();
@@ -47,7 +49,20 @@ class LineGraph {
 		this._timeValWidth = null;
 		this._timeValIntervalMs = null;
 		this._markerHighLight = null;
+		this._firstMarkerTime = null;
+		this._firstMarkerX = null;
+		this._markerSpacing = null;
 		this._canvasScrollInfo = null;
+		this._legendInfo = null;
+
+		// Handle legend
+		canvas.addEventListener('mousemove', (evt) => {
+			this._handleMouseMoveLegend(evt);
+		});
+
+		canvas.addEventListener('mouseout', (evt) => {
+			this._handleMouseOutLegend(evt);
+		});
 
 		// Handle canvas drag-scroll
 		canvas.addEventListener('mousedown', (evt) => {
@@ -144,6 +159,9 @@ class LineGraph {
 		this._subValX = this._subTitleX - this.marginPx - maxValWidth;
 		this._dispWidth = this._subValX - this.marginPx;
 
+		// Layout the legend
+		this._layoutLegend();
+
 		// Layout the time markers and redraw
 		this._recalcTimeMarkersAndRedraw();
 	}
@@ -174,6 +192,7 @@ class LineGraph {
 		ctx.fillText(message, centerX, centerY);
 
 		this._busy = true;
+		this._legendInfo.posX = null;
 	}
 
 	// Called when the time interval changes (because of drag scroll, zoom/move
@@ -259,7 +278,6 @@ class LineGraph {
 			this._markerHighLight = markerHighLight;
 		} else {
 			intervalMs = this._timeValIntervalMs;
-			markerHighLight = this._markerHighLight;
 		}
 
 		// Reposition the markers
@@ -270,9 +288,25 @@ class LineGraph {
 			graphWidth / totalIntervalMs;
 		const markerSpacing = intervalMs * graphWidth / totalIntervalMs;
 
-		// Start of draw code
+		this._firstMarkerTime = firstMarkerTime;
+		this._firstMarkerX = firstMarkerX;
+		this._markerSpacing = markerSpacing;
+
+		this._redraw();
+	}
+
+	_redraw() {
+		const ctx = this._context;
+		const firstMarkerTime = this._firstMarkerTime;
+		const firstMarkerX = this._firstMarkerX;
+		const markerSpacing = this._markerSpacing;
+		const intervalMs = this._timeValIntervalMs;
+		const markerHighLight = this._markerHighLight;
 
 		// Clear all
+		ctx.lineWidth = 1.0;
+		ctx.textAlign = 'start';
+		ctx.textBaseline = 'alphabetic';
 		ctx.fillStyle = 'white';
 		ctx.fillRect(0, 0, this._width, this._height);
 
@@ -337,6 +371,7 @@ class LineGraph {
 
 		ctx.textAlign = 'start';
 		ctx.textBaseline = 'middle';
+		ctx.font = this.axisValueFont;
 
 		// Subgraphs (including their titles, legends, and horizontal lines)
 		this.subGraphs.forEach((subGraph) => {
@@ -344,6 +379,156 @@ class LineGraph {
 				this.startTimeMs, this.endTimeMs, this.gridColor,
 				this.subGridColor);
 		});
+
+		// Legend
+		this._drawLegend();
+	}
+
+	_layoutLegend() {
+		const ctx = this._context;
+
+		let seriesInfo = [];
+		this.subGraphs.forEach((subGraph) => {
+			subGraph.collectSeriesInfo(seriesInfo);
+		});
+
+		let dateTextMetric = ctx.measureText("XX/XX/XXXX XX:XX:XX");
+		let dateTextWidth = Math.ceil(dateTextMetric.width);
+
+		let maxTextWidth = 0;
+		let maxTextHeight = Math.ceil(dateTextMetric.fontBoundingBoxAscent +
+			dateTextMetric.fontBoundingBoxDescent);
+		let legendValues = [];
+
+		seriesInfo.forEach((info) => {
+			const textMetric = ctx.measureText(info.name);
+			const textWidth = Math.ceil(textMetric.width);
+			const textHeight = Math.ceil(textMetric.fontBoundingBoxAscent +
+				textMetric.fontBoundingBoxDescent);
+
+			if (maxTextWidth < textWidth) {
+				maxTextWidth = textWidth;
+			}
+
+			if (maxTextHeight < textHeight) {
+				maxTextHeight = textHeight;
+			}
+
+			legendValues.push("—");
+		});
+
+		const colorCellX = 1 + this.marginPx;
+		const textX = colorCellX + maxTextHeight + this.marginPx;
+		const valueX = textX + maxTextWidth + this.marginPx;
+		const baseWidth = valueX + this.marginPx + 1;
+		const lineSpacing  = maxTextHeight + this.marginPx;
+		const height = 2 + this.marginPx + lineSpacing *
+			(seriesInfo.length + 1);
+
+		// The actual width of the legend is its base width + the width of the
+		// widest value; however, if the legend text and values are very short,
+		// the date text can be the longest line. Calculate the minimal value
+		// width so that the date text fits.
+		const baseValueWidth = dateTextWidth - (maxTextHeight + this.marginPx +
+			maxTextWidth + this.marginPx);
+
+		this._legendInfo = {
+			seriesInfo: seriesInfo,
+			colorCellX: colorCellX,
+			colorCellSize: maxTextHeight,
+			textX: textX,
+			valueX: valueX,
+			baseWidth: baseWidth,
+			baseValueWidth: baseValueWidth,
+			height: height,
+			lineSpacing: lineSpacing,
+			posX: null,
+			posY: null,
+			tstamp: null,
+			dispDate: null,
+			dispValues: [],
+		}
+	}
+
+	_drawLegend() {
+		const ctx = this._context;
+		const legendInfo = this._legendInfo;
+		const legendOffset = this.legendOffset;
+
+		let x = legendInfo.posX;
+		let y = legendInfo.posY;
+
+		if (x === null) {
+			return;
+		}
+
+		let maxValueWidth = legendInfo.baseValueWidth;
+		legendInfo.dispValues.forEach((value) => {
+			const valueMetric = ctx.measureText('' + value);
+			const valueWidth = Math.ceil(valueMetric.width);
+			if (valueWidth > maxValueWidth) {
+				maxValueWidth = valueWidth;
+			}
+		});
+
+		const legendWidth = legendInfo.baseWidth + maxValueWidth;
+		ctx.globalAlpha = 0.8;
+
+		// Draw a vertical line at the mouse position
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = this.gridColor;
+		ctx.beginPath();
+		ctx.moveTo(x + 0.5, 0.5);
+		ctx.lineTo(x + 0.5, this._dispHeight + 0.5);
+		ctx.stroke();
+
+		// Adjust the legend position so it stays visible
+		if ((x + legendOffset + legendWidth) > this._width) {
+			x -= legendOffset + legendWidth;
+		} else {
+			x += legendOffset;
+		}
+
+		if ((y + legendOffset + legendInfo.height) > this._height) {
+			y -= legendOffset + legendInfo.height;
+		} else {
+			y += legendOffset;
+		}
+
+		ctx.textBaseline = 'top';
+		ctx.font = this.legendFont;
+		ctx.strokeStyle = this.textColor;
+		ctx.fillStyle = '#FFFFFF';
+		ctx.fillRect(x, y, legendWidth, legendInfo.height);
+		ctx.strokeRect(x + 0.5, y + 0.5, legendWidth, legendInfo.height);
+
+		const colorCellSize = legendInfo.colorCellSize;
+
+		let posY = y + 1 + this.marginPx;
+		ctx.fillStyle = this.textColor;
+		ctx.fillText(legendInfo.dispDate, x + legendInfo.colorCellX, posY);
+
+		legendInfo.seriesInfo.forEach((entry, idx) => {
+			let posX = x + legendInfo.colorCellX;
+			let value = legendInfo.dispValues[idx];
+			posY += legendInfo.lineSpacing;
+
+			ctx.fillStyle = entry.color;
+
+			ctx.fillRect(posX, posY, colorCellSize, colorCellSize);
+			ctx.strokeRect(posX + 0.5, posY + 0.5, colorCellSize,
+					colorCellSize);
+
+			ctx.fillStyle = this.textColor;
+
+			posX = x + legendInfo.textX;
+			ctx.fillText(entry.name, posX, posY);
+
+			posX = x + legendInfo.valueX;
+			ctx.fillText("" + value, posX, posY);
+		});
+
+		ctx.globalAlpha = 1;
 	}
 
 	_handleMouseDown(evt) {
@@ -359,7 +544,7 @@ class LineGraph {
 			timeInterval: this._totalIntervalMs,
 			curDelta: 0,
 			moveHandler: (evt) => {
-				this._handleMouseMove(evt);
+				this._handleMouseMoveDrag(evt);
 			},
 			upHandler: (evt) =>  {
 				this._handleMouseUp(evt);
@@ -370,9 +555,10 @@ class LineGraph {
 		window.addEventListener('mouseup', scrollInfo.upHandler);
 
 		this._canvasScrollInfo = scrollInfo;
+		this._legendInfo.posX = null;
 	}
 
-	_handleMouseMove(evt) {
+	_handleMouseMoveDrag(evt) {
 		const scrollInfo = this._canvasScrollInfo;
 		const delta = evt.clientX - scrollInfo.origX;
 
@@ -408,6 +594,67 @@ class LineGraph {
 		window.removeEventListener('mouseup', scrollInfo.upHandler);
 
 		this._notifyRangeCallback();
+	}
+
+	_handleMouseMoveLegend(evt) {
+		const posX = evt.offsetX;
+		const posY = evt.offsetY;
+		const legendInfo = this._legendInfo;
+
+		if (this._canvasScrollInfo || this._busy) {
+			return;
+		}
+
+		if (posX > this._dispWidth || posY > this._dispHeight) {
+			if (legendInfo.posX !== null) {
+				legendInfo.posX = null;
+				this.refresh();
+			}
+
+			return;
+		}
+
+		let needsRedraw = false;
+
+		if (legendInfo.posX !== posX) {
+			legendInfo.posX = posX;
+
+			const tOffset = posX * this._totalIntervalMs / this._dispWidth;
+			const tstamp = Math.round((this.startTimeMs + tOffset) / 60000) *
+				60000;
+
+			if (tstamp !== legendInfo.tstamp) {
+				const dt = new Date(tstamp);
+				legendInfo.tstamp = tstamp;
+				legendInfo.dispDate = LineGraph._ZeroPad(dt.getDate()) + '/' +
+					LineGraph._ZeroPad(dt.getMonth() + 1) + '/' +
+					dt.getFullYear() + ' ' + LineGraph._ZeroPad(dt.getHours()) +
+					':' + LineGraph._ZeroPad(dt.getMinutes());
+
+				legendInfo.dispValues.length = 0;
+				this.subGraphs.forEach((subGraph) => {
+					subGraph.collectValues(tstamp, legendInfo.dispValues);
+				});
+
+				needsRedraw = true;
+			}
+		}
+
+		if (legendInfo.posY !== posY) {
+			legendInfo.posY = posY;
+			needsRedraw = true;
+		}
+
+		if (needsRedraw) {
+			this._redraw();
+		}
+	}
+
+	_handleMouseOutLegend(evt) {
+		if (this._legendInfo.posX !== null) {
+			this._legendInfo.posX = null;
+			this.refresh();
+		}
 	}
 
 	_handleZoomPlus() {
@@ -528,8 +775,13 @@ LineGraph._ZeroPad = function (value) {
  * main graph needs to be called.
  */
 class SubGraph {
-	constructor(title, min, max) {
+	constructor(title, unit, min, max) {
+		if (unit) {
+			title += " (" + unit + ")";
+		}
+
 		this.title = title;
+		this.unit = unit;
 		this.min = min;
 		this.max = max;
 		this.series = [];
@@ -690,6 +942,25 @@ class SubGraph {
 				heightFactor);
 		});
 	}
+
+	/**
+	 * Collects series information for the legend.
+	 */
+	collectSeriesInfo(seriesInfo) {
+		this.series.forEach((series) => {
+			series.collectSeriesInfo(seriesInfo);
+		});
+	}
+
+	/**
+	 * Collect values for the specified time. The values are added in the same
+	 * order as collectSeriesInfo.
+	 */
+	collectValues(tstamp, values) {
+		this.series.forEach((series) => {
+			series.collectValues(tstamp, this.unit, values);
+		});
+	}
 }
 
 
@@ -726,6 +997,56 @@ class Series {
 		});
 
 		ctx.stroke();
+	}
+
+	/**
+	 * Collects series information for the legend.
+	 */
+	collectSeriesInfo(seriesInfo) {
+		seriesInfo.push({
+			name: this.name,
+			color: this.color,
+		});
+	}
+
+	/**
+	 * Collect values for the specified time. The values are added in the same
+	 * order as collectSeriesInfo.
+	 */
+	collectValues(tstamp, unit, values) {
+		const rightBound = this.values.length - 1;
+		let leftIdx = 0;
+		let rightIdx = rightBound;
+		let curIdx;
+		let cur = null;
+
+		// Keep any found value (will give a close one)
+		while (leftIdx <= rightIdx) {
+			curIdx = Math.floor((leftIdx + rightIdx) / 2);
+
+			cur = this.values[curIdx];
+			if (cur.timeStampMs < tstamp) {
+				leftIdx = curIdx + 1;
+			} else if (cur.timeStampMs > tstamp) {
+				rightIdx = curIdx - 1;
+			} else {
+				break;
+			}
+		}
+
+		// But reject the value if outside of the bounds of the series
+		if ((curIdx == 0 && cur.timeStampMs > tstamp) ||
+			(curIdx === rightBound && cur.timeStampMs < tstamp)) {
+			cur = null;
+
+		}
+
+		if (cur === null) {
+			values.push("—");
+		} else {
+			values.push("" + Math.round(cur.value * 10) / 10 + " " + unit);
+		}
+
 	}
 }
 

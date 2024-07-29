@@ -16,8 +16,8 @@ class HistoryManager {
 		this._graph = null;
 		this._mode = null;
 
-		this._tempGraph = new SubGraph("Temperature (°C)", -10, 40);
-		this._humGraph = new SubGraph("Humidity (%)", 0, 100);
+		this._tempGraph = new SubGraph("Temperature", "°C", -10, 40);
+		this._humGraph = new SubGraph("Humidity", "%", 0, 100);
 
 		this._xhr = new XMLHttpRequest();
 		this._xhr.onreadystatechange = () => {
