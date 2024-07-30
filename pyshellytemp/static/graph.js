@@ -392,7 +392,7 @@ class LineGraph {
 			subGraph.collectSeriesInfo(seriesInfo);
 		});
 
-		let dateTextMetric = ctx.measureText("XX/XX/XXXX XX:XX:XX");
+		let dateTextMetric = ctx.measureText("XX/XX/XXXX XX:XX");
 		let dateTextWidth = Math.ceil(dateTextMetric.width);
 
 		let maxTextWidth = 0;
@@ -1046,7 +1046,6 @@ class Series {
 		} else {
 			values.push("" + Math.round(cur.value * 10) / 10 + " " + unit);
 		}
-
 	}
 }
 
