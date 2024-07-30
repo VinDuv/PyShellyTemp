@@ -54,6 +54,14 @@ class LineGraph {
 		this._markerSpacing = null;
 		this._canvasScrollInfo = null;
 		this._legendInfo = null;
+		this._legendState = {
+			posX: null,
+			posY: null,
+			tstamp: null,
+			dispDate: null,
+			dispValues: [],
+		};
+
 
 		// Handle legend
 		canvas.addEventListener('mousemove', (evt) => {
@@ -192,7 +200,6 @@ class LineGraph {
 		ctx.fillText(message, centerX, centerY);
 
 		this._busy = true;
-		this._legendInfo.posX = null;
 	}
 
 	// Called when the time interval changes (because of drag scroll, zoom/move
@@ -442,28 +449,24 @@ class LineGraph {
 			baseValueWidth: baseValueWidth,
 			height: height,
 			lineSpacing: lineSpacing,
-			posX: null,
-			posY: null,
-			tstamp: null,
-			dispDate: null,
-			dispValues: [],
 		}
 	}
 
 	_drawLegend() {
 		const ctx = this._context;
 		const legendInfo = this._legendInfo;
+		const legendState = this._legendState;
 		const legendOffset = this.legendOffset;
 
-		let x = legendInfo.posX;
-		let y = legendInfo.posY;
+		let x = legendState.posX;
+		let y = legendState.posY;
 
-		if (x === null) {
+		if (this._canvasScrollInfo !== null || this._busy || x === null) {
 			return;
 		}
 
 		let maxValueWidth = legendInfo.baseValueWidth;
-		legendInfo.dispValues.forEach((value) => {
+		legendState.dispValues.forEach((value) => {
 			const valueMetric = ctx.measureText('' + value);
 			const valueWidth = Math.ceil(valueMetric.width);
 			if (valueWidth > maxValueWidth) {
@@ -506,11 +509,11 @@ class LineGraph {
 
 		let posY = y + 1 + this.marginPx;
 		ctx.fillStyle = this.textColor;
-		ctx.fillText(legendInfo.dispDate, x + legendInfo.colorCellX, posY);
+		ctx.fillText(legendState.dispDate, x + legendInfo.colorCellX, posY);
 
 		legendInfo.seriesInfo.forEach((entry, idx) => {
 			let posX = x + legendInfo.colorCellX;
-			let value = legendInfo.dispValues[idx];
+			let value = legendState.dispValues[idx];
 			posY += legendInfo.lineSpacing;
 
 			ctx.fillStyle = entry.color;
@@ -555,7 +558,6 @@ class LineGraph {
 		window.addEventListener('mouseup', scrollInfo.upHandler);
 
 		this._canvasScrollInfo = scrollInfo;
-		this._legendInfo.posX = null;
 	}
 
 	_handleMouseMoveDrag(evt) {
@@ -593,21 +595,37 @@ class LineGraph {
 		window.removeEventListener('mousemove', scrollInfo.moveHandler);
 		window.removeEventListener('mouseup', scrollInfo.upHandler);
 
+		this._updateLegendPos(evt);
 		this._notifyRangeCallback();
 	}
 
 	_handleMouseMoveLegend(evt) {
+		const needsRedraw = this._updateLegendPos(evt);
+
+		if (needsRedraw) {
+			this._redraw();
+		}
+	}
+
+	_handleMouseOutLegend(evt) {
+		if (this._legendState.posX !== null) {
+			this._legendState.posX = null;
+			this._redraw();
+		}
+	}
+
+	_updateLegendPos(evt) {
 		const posX = evt.offsetX;
 		const posY = evt.offsetY;
-		const legendInfo = this._legendInfo;
+		const legendState = this._legendState;
 
 		if (this._canvasScrollInfo || this._busy) {
 			return;
 		}
 
 		if (posX > this._dispWidth || posY > this._dispHeight) {
-			if (legendInfo.posX !== null) {
-				legendInfo.posX = null;
+			if (legendState.posX !== null) {
+				legendState.posX = null;
 				this.refresh();
 			}
 
@@ -616,45 +634,36 @@ class LineGraph {
 
 		let needsRedraw = false;
 
-		if (legendInfo.posX !== posX) {
-			legendInfo.posX = posX;
+		if (legendState.posX !== posX) {
+			legendState.posX = posX;
 
 			const tOffset = posX * this._totalIntervalMs / this._dispWidth;
 			const tstamp = Math.round((this.startTimeMs + tOffset) / 60000) *
 				60000;
 
-			if (tstamp !== legendInfo.tstamp) {
+			if (tstamp !== legendState.tstamp) {
 				const dt = new Date(tstamp);
-				legendInfo.tstamp = tstamp;
-				legendInfo.dispDate = LineGraph._ZeroPad(dt.getDate()) + '/' +
+				legendState.tstamp = tstamp;
+				legendState.dispDate = LineGraph._ZeroPad(dt.getDate()) + '/' +
 					LineGraph._ZeroPad(dt.getMonth() + 1) + '/' +
 					dt.getFullYear() + ' ' + LineGraph._ZeroPad(dt.getHours()) +
 					':' + LineGraph._ZeroPad(dt.getMinutes());
 
-				legendInfo.dispValues.length = 0;
+				legendState.dispValues.length = 0;
 				this.subGraphs.forEach((subGraph) => {
-					subGraph.collectValues(tstamp, legendInfo.dispValues);
+					subGraph.collectValues(tstamp, legendState.dispValues);
 				});
 
 				needsRedraw = true;
 			}
 		}
 
-		if (legendInfo.posY !== posY) {
-			legendInfo.posY = posY;
+		if (legendState.posY !== posY) {
+			legendState.posY = posY;
 			needsRedraw = true;
 		}
 
-		if (needsRedraw) {
-			this._redraw();
-		}
-	}
-
-	_handleMouseOutLegend(evt) {
-		if (this._legendInfo.posX !== null) {
-			this._legendInfo.posX = null;
-			this.refresh();
-		}
+		return needsRedraw;
 	}
 
 	_handleZoomPlus() {
