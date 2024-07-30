@@ -931,16 +931,21 @@ class SubGraph {
 		}
 
 		// Draw the series
-		ctx.lineWidth = 2.0;
-
 		const timeFactor = dispWidth / (endTimeMs - startTimeMs);
 		const heightFactor = this._height / this._actualRange;
 		const baseY = this._posY + this._height;
+
+		ctx.save();
+		ctx.lineWidth = 2.0;
+		ctx.rect(0, this._posY, dispWidth, this._height);
+		ctx.clip();
 
 		this.series.forEach((series) => {
 			series.draw(ctx, startTimeMs, timeFactor, baseY, this._actualMin,
 				heightFactor);
 		});
+
+		ctx.restore();
 	}
 
 	/**
