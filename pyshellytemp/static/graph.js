@@ -2,6 +2,8 @@
 /* jshint esversion: 6 */
 /* exported LineGraph, SubGraph, Series */
 
+const DEFAULT_DISP_INTERVAL = 3 * 86400 * 1000;
+
 /**
  * Main class of the line graph. Defines the X axis of the graph (time) and
  * handles the buttons. May contain an arbitrary numbers of sub-graphs in the
@@ -32,7 +34,7 @@ class LineGraph {
 
 		// Time range
 		this.endTimeMs = Date.now();
-		this.startTimeMs = this.endTimeMs - 3 * 86400 * 1000;
+		this.startTimeMs = this.endTimeMs - DEFAULT_DISP_INTERVAL;
 
 		// Sub-graphs
 		this.subGraphs = [];
@@ -735,6 +737,16 @@ class LineGraph {
 		this._notifyRangeCallback();
 	}
 
+	_handleDispDefault() {
+		const curDateTimeMs = Date.now();
+
+		this.endTimeMs = curDateTimeMs;
+		this.startTimeMs = curDateTimeMs - DEFAULT_DISP_INTERVAL;
+
+		this._recalcTimeMarkersAndRedraw();
+		this._notifyRangeCallback();
+	}
+
 	_handleDispMonth() {
 		const curDateTimeMs = Date.now();
 
@@ -1089,6 +1101,7 @@ const HANDLERS = [
 	['left', 'MoveLeft'],
 	['right', 'MoveRight'],
 	['1d', 'DispDay'],
+	['def', 'DispDefault'],
 	['1m', 'DispMonth'],
 	['1y', 'DispYear'],
 	['export', 'Export'],
