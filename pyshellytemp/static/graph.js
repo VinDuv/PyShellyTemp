@@ -595,8 +595,10 @@ class LineGraph {
 		window.removeEventListener('mousemove', scrollInfo.moveHandler);
 		window.removeEventListener('mouseup', scrollInfo.upHandler);
 
-		this._updateLegendPos(evt);
-		this._notifyRangeCallback();
+		if (scrollInfo.curDelta !== 0) {
+			this._updateLegendPos(evt);
+			this._notifyRangeCallback();
+		}
 	}
 
 	_handleMouseMoveLegend(evt) {
