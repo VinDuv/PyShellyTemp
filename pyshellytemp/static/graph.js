@@ -199,9 +199,9 @@ class LineGraph {
 	// button click, or initial delegate set)
 	_notifyRangeCallback() {
 		// Load extra data from the margins so the the graph line start at least
-		// at the edge of the graph
-		const extraTime = Math.floor((this.endTimeMs - this.startTimeMs) *
-			0.05);
+		// at the edge of the graph; include at least 12 hours of margin
+		const extraTime = Math.max(12 * 3600000,
+			Math.floor((this.endTimeMs - this.startTimeMs) * 0.05));
 
 		this._delegate.rangeUpdated(this.startTimeMs - extraTime,
 			this.endTimeMs + extraTime);
