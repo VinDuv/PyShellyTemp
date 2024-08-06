@@ -113,8 +113,12 @@ class HistoryManager {
 				if (minTemp === null || minTemp > curTemp) {
 					minTemp = curTemp;
 				}
-
 			});
+
+			if ((maxTemp - minTemp) < 2) {
+				maxTemp += 0.5;
+				minTemp -= 0.5;
+			}
 
 			tempSeries.push(new Series(name, tempColor, tempValues));
 			humSeries.push(new Series(name, humColor, humValues));
