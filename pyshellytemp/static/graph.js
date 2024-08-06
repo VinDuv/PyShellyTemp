@@ -852,7 +852,7 @@ class SubGraph {
 		// Determine the position of the horizontal lines
 		const maxLines = Math.floor(height / (labelTextHeight * 1.5));
 		const range = this.max > this.min ? (this.max - this.min) : maxLines;
-		const rawInterval = range / maxLines;
+		const rawInterval = Math.max(range / maxLines, 1);
 		let actInterval = Math.pow(10, Math.ceil(Math.log10(rawInterval)));
 		let halfInterval = actInterval / 2;
 		if (rawInterval <= halfInterval && Number.isInteger(halfInterval)) {
