@@ -191,8 +191,8 @@ class LineGraph {
 
 		const metrics = ctx.measureText(message);
 		const textWidth = Math.ceil(metrics.width);
-		const textHeight = Math.ceil(metrics.fontBoundingBoxAscent +
-			metrics.fontBoundingBoxDescent);
+		const textHeight = Math.ceil(metrics.actualBoundingBoxAscent +
+			metrics.actualBoundingBoxDescent);
 
 		ctx.fillStyle = 'white';
 		ctx.fillRect(Math.floor(centerX - textWidth / 2), Math.floor(centerY -
@@ -405,15 +405,15 @@ class LineGraph {
 		let dateTextWidth = Math.ceil(dateTextMetric.width);
 
 		let maxTextWidth = 0;
-		let maxTextHeight = Math.ceil(dateTextMetric.fontBoundingBoxAscent +
-			dateTextMetric.fontBoundingBoxDescent);
+		let maxTextHeight = Math.ceil(dateTextMetric.actualBoundingBoxAscent +
+			dateTextMetric.actualBoundingBoxDescent);
 		let legendValues = [];
 
 		seriesInfo.forEach((info) => {
 			const textMetric = ctx.measureText(info.name);
 			const textWidth = Math.ceil(textMetric.width);
-			const textHeight = Math.ceil(textMetric.fontBoundingBoxAscent +
-				textMetric.fontBoundingBoxDescent);
+			const textHeight = Math.ceil(textMetric.actualBoundingBoxAscent +
+				textMetric.actualBoundingBoxDescent);
 
 			if (maxTextWidth < textWidth) {
 				maxTextWidth = textWidth;
