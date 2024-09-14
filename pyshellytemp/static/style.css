@@ -144,6 +144,16 @@ hr {
 	margin: .25em 0 .5em 0;
 }
 
+.hidden_text {
+	color: transparent;
+    text-shadow: 0 0 .8em #000000;
+}
+
+.hidden_text:focus, .hidden_text:hover {
+	color: inherit;
+	text-shadow: unset;
+}
+
 canvas {
 	margin: .5em 0;
 }

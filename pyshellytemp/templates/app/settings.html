@@ -27,9 +27,9 @@ report data.
 <hr />
 <form method="post">
 <label for="device_uname">Device login:</label>
-<input type="text" name="device_uname" id="device_uname" value="{{device_uname}}" /><br />
+<input type="text" name="device_uname" id="device_uname" spellcheck="false" value="{{device_uname}}" /><br />
 <label for="device_uname">Device password:</label>
-<input type="password" name="device_pass" id="device_pass" value="{{device_pass}}" />
+<input type="text" class="hidden_text" name="device_pass" id="device_pass" spellcheck="false" value="{{device_pass}}" />
 <input type="submit" name="set_values" value="Set" />
 <div class="help_text">
 Username and password used to login on the Shelly device’s web interface. These
