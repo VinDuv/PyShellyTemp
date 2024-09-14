@@ -247,7 +247,7 @@ class ServerConn:
                 print(f"Unable to resolve hostname: {err}")
                 continue
 
-            if not ipaddress.IPv4Address(ipaddress).is_private:
+            if not ipaddress.IPv4Address(ip_addr).is_private:
                 print(f"The IP address {ip_addr} from hostname {hostname} is "
                     f"not a local IP address. You need to specify the "
                     f"network-local address of the server so when the Shelly "
