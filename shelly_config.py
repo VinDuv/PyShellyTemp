@@ -108,9 +108,11 @@ class DeviceConn:
         result = self._post('/settings/cloud', enabled='false')
         print(f"    {result}")
 
-        print(" - Disabling CoIoT and MQTT")
+        print(" - Disabling CoIoT, MQTT and time management")
         result = self._post('/settings', coiot_enable='false',
-            mqtt_enable='false')
+            mqtt_enable='false', sntp_server='', timezone='UTC',
+            lat='0', lng='0', tzautodetect='false', tz_utc_offset='0',
+            tz_dst='0', tz_dst_auto='0')
         print(f"    {result}")
 
         if settings.dev_username:
