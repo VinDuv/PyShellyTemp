@@ -35,8 +35,9 @@ def run() -> None:
     settings = srv_conn.get_settings()
     while True:
         dev_conn = DeviceConn.wait_for_device()
+        time.sleep(1)
         srv_conn.enable_discovery()
-
+        time.sleep(1)
         dev_conn.apply_settings(settings)
 
         res = input('Configure another device? [y/N] ').lower()
@@ -108,11 +109,11 @@ class DeviceConn:
         result = self._post('/settings/cloud', enabled='false')
         print(f"    {result}")
 
-        print(" - Disabling CoIoT, MQTT and time management")
+        print(" - Disabling CoIoT, MQTT, MDNS, and time management")
         result = self._post('/settings', coiot_enable='false',
-            mqtt_enable='false', sntp_server='', timezone='UTC',
-            lat='0', lng='0', tzautodetect='false', tz_utc_offset='0',
-            tz_dst='0', tz_dst_auto='0')
+            mqtt_enable='false', discoverable='false', sntp_server='',
+            timezone='UTC', lat='0', lng='0', tzautodetect='false',
+            tz_utc_offset='0', tz_dst='0', tz_dst_auto='0')
         print(f"    {result}")
 
         if settings.dev_username:
