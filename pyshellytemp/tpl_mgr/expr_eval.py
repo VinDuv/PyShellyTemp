@@ -63,7 +63,7 @@ class ExpressionEvaluator:
         ast.Compare: ['left', 'comparators']
     }
 
-    _root_node: ast.AST
+    _root_node: ast.expr
 
     def __init__(self, expr: str):
         """
@@ -131,7 +131,7 @@ class ExpressionEvaluator:
         return f"<ExpressionEvaluator: {ast.unparse(self._root_node)}>"
 
     @classmethod
-    def _validate_node(cls, text: str, node: ast.AST) -> None:
+    def _validate_node(cls, text: str, node: ast.expr) -> None:
         """
         Check that the provided node (and its children) represent supported
         operations.
@@ -152,7 +152,7 @@ class ExpressionEvaluator:
                 offset, text, end_lineno, end_offset))
 
         for attr in to_check:
-            sub_node_or_list: ast.AST | list[ast.AST] = getattr(node, attr)
+            sub_node_or_list: ast.expr | list[ast.expr] = getattr(node, attr)
             if isinstance(sub_node_or_list, list):
                 # Special case for the comparator, where the right-hand side
                 # is a list of values to support chained comparisons (a < b < c)
@@ -174,12 +174,10 @@ class ExpressionEvaluator:
             cls._validate_node(text, sub_node)
 
     @classmethod
-    def _evaluate_node(cls, node: ast.AST, context: StrDict) -> typing.Any:
+    def _evaluate_node(cls, node: ast.expr, context: StrDict) -> typing.Any:
         class_name = node.__class__.__name__.lower()
 
-        evaluator = getattr(cls, f'_evaluate_{class_name}', None)
-        if evaluator is None:
-            raise AssertionError(f"Unhandled node: {ast.dump(node)}")
+        evaluator = getattr(cls, f'_evaluate_{class_name}')
 
         return evaluator(node, context)
 

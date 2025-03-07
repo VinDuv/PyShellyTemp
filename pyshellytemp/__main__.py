@@ -5,10 +5,12 @@ Module entry point; contain admin tools
 import argparse
 import getpass
 
-# pylint: disable=W0611
-from . import app, models
+from . import models
 from .db import database
 from .session import User
+
+# Models import is required so the DB creation creates the models
+_ = models
 
 
 def run() -> None:

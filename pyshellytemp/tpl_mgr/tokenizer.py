@@ -121,7 +121,7 @@ class Token:
                 except ValueError:
                     type_offset = match.start('type')
                     raise cls.ParseError(f"Unknown tag {tok_raw_type!r}",
-                        (path, lineno, type_offset + 1, line)) from None
+                        (str(path), lineno, type_offset + 1, line)) from None
                 tok_val = groups['value']
                 tok_val_offset = match.start('value')
 

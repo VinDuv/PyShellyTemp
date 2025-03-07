@@ -153,6 +153,11 @@ class DeviceConn:
                 with conn.getresponse() as response:
                     if response.status == 200:
                         data = json.load(response)
+                    else:
+                        print(f"Unexpected response status {response.status} "
+                            "from device. Retrying…")
+                        time.sleep(2)
+                        continue
 
                 dev_type = data.get('type', '<unknown>')
                 if dev_type != 'SHHT-1':
@@ -248,6 +253,8 @@ class ServerConn:
             except OSError as err:
                 print(f"Unable to resolve hostname: {err}")
                 continue
+
+            assert isinstance(ip_addr, str)
 
             if not ipaddress.IPv4Address(ip_addr).is_private:
                 print(f"The IP address {ip_addr} from hostname {hostname} is "

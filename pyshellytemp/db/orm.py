@@ -836,6 +836,9 @@ class DBObject(DBObjectBase, metaclass=DBObjectMeta):
     """
 
     # Nominally, SomeClass._table_def = TableDef[SomeClass]
+    # This is a class variable so it does not need to go in __slots__
+    # https://github.com/pylint-dev/pylint/issues/9950
+    # pylint: disable=E0245
     _table_def: typing.ClassVar[TableDef[typing.Any]]
 
     __slots__ = ['_db_props']
