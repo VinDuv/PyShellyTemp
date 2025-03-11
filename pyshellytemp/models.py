@@ -14,6 +14,7 @@ DISCOVERY_DELAY = datetime.timedelta(minutes=10)
 
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
+database.set_db_version(0)
 
 
 class Settings(DBObject, table='settings'):

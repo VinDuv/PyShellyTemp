@@ -238,6 +238,7 @@ class Database:
         self._conn: sqlite3.Connection | None = None
         self._init_lock = threading.Lock()
         self._init_hooks: list[tuple[int, DBHook]] = []
+        self._db_version: typing.Optional[int] = None
 
     def create_table(self, name: str, fields: dict[str, DBField]) -> None:
         """
@@ -357,6 +358,24 @@ class Database:
 
         self._db_path = path
 
+    def set_db_version(self, version: int) -> None:
+        """
+        Sets the database version. This is used to detect if the database model
+        is up to date.
+        The version number set here (0 if unset) is written to the database
+        upon creation, and checked on first use.
+        """
+
+        if self._db_version is not None:
+            raise AssertionError(f"Database version already set to "
+                f"{self._db_version}")
+
+        if not -2**31 <= version < 2**31:
+            raise ValueError(f"Invalid database version number {version}")
+
+        self._db_version = version
+
+
     def init(self, *, force: bool=False) -> None:
         """
         Initializes a new database. If force is True, any existing database will
@@ -384,6 +403,10 @@ class Database:
                 sys.exit(f"Error creating database {db_path}: {err}. "
                     f"Check that the database path is valid.")
 
+            db_version = self._db_version or 0
+            # No placeholder support for pragmas
+            self._conn.execute(f'pragma user_version = {db_version:d};')
+
             for _, hook in sorted(self._init_hooks, key=lambda item: item[0]):
                 hook(self)
 
@@ -401,6 +424,52 @@ class Database:
             return hook
 
         return _inner
+
+    def prepare_db_upgrade(self) -> tuple[int, int, sqlite3.Connection | None]:
+        """
+        Prepare the database for upgrade.
+        Returns a tuple containing:
+        - The current database version (0 if the database is missing)
+        - The expected database version after upgrade
+        - A raw connection to the database (None iff the database is missing)
+        """
+
+        db_path = self._get_db_path()
+        db_version = self._db_version or 0
+
+        if not self._check_db_file_exists(db_path):
+            return 0, db_version, None
+
+        conn = self._connect_to_db(db_path)
+        return self._get_conn_db_version(conn), db_version, conn
+
+    @classmethod
+    def format_db_fields(cls, fields: dict[str, DBField]) -> StrIt:
+        """
+        Forms a database table definition from the specified fields dictionary.
+        The yielded strings must be concatenated.
+        """
+
+        sep = cls.Separator()
+
+        for field_name, field_def in fields.items():
+            yield from (sep.get(), field_name, ' ', field_def.type.value)
+            if field_def.nullable:
+                yield ' null'
+            else:
+                yield ' not null'
+
+            if field_def.unique:
+                yield ' unique'
+
+        for field_name, field_def in fields.items():
+            fk_def = field_def.get_fk_def()
+            if fk_def is None:
+                continue
+
+            ref_table, ref_field, on_delete = fk_def
+            yield from (sep.get(), 'foreign key (', field_name, ') references ',
+                ref_table, ' (', ref_field, ') on delete ', on_delete)
 
     def _get_connection(self) -> sqlite3.Connection:
         """
@@ -425,6 +494,14 @@ class Database:
                     f"database path with the DB_PATH environment variable.")
 
             self._conn = self._connect_to_db(db_path)
+
+            db_ver = self._get_conn_db_version(self._conn)
+            expected = self._db_version or 0
+
+            if db_ver != expected:
+                sys.exit(f"The database is at version {db_ver}, but is "
+                    f"expected to be at version {expected}. Run the "
+                    f"appropriate database update script.")
 
             return self._conn
 
@@ -453,28 +530,7 @@ class Database:
         """
 
         yield from ('create table ', name, ' (')
-
-        sep = cls.Separator()
-
-        for field_name, field_def in fields.items():
-            yield from (sep.get(), field_name, ' ', field_def.type.value)
-            if field_def.nullable:
-                yield ' null'
-            else:
-                yield ' not null'
-
-            if field_def.unique:
-                yield ' unique'
-
-        for field_name, field_def in fields.items():
-            fk_def = field_def.get_fk_def()
-            if fk_def is None:
-                continue
-
-            ref_table, ref_field, on_delete = fk_def
-            yield from (sep.get(), 'foreign key (', field_name, ') references ',
-                ref_table, ' (', ref_field, ') on delete ', on_delete)
-
+        yield from cls.format_db_fields(fields)
         yield ');'
 
     @classmethod
@@ -618,6 +674,16 @@ class Database:
             return False
         except OSError as err:
             sys.exit(f"Unable to access the database: {err}")
+
+    @staticmethod
+    def _get_conn_db_version(conn: sqlite3.Connection) -> int:
+        """
+        Gets the database version from a database connection.
+        """
+
+        db_version = conn.execute('pragma user_version;').fetchone()[0]
+        assert isinstance(db_version, int)
+        return db_version
 
 
 database = Database()

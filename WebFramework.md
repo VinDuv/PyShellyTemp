@@ -613,6 +613,42 @@ Sample.get_all(int_val_lte=43).count()
 Sample.get_all().order_by('-id')[10:].delete()
 ```
 
+Database versioning and upgrade
+-------------------------------
+
+When database definitions are updated, previously-created databases may become
+incompatible. To help with compatibility checks, the framework manages a
+database version number.
+
+- In your database setup code code, call `database.set_db_version(0)` to set
+  the database version number to 0. The specified version number is written
+  to newly-created databases and checked when accessing an existing database (if
+  the version number is not specified, it is assumed to be 0).
+- If you make changes to your model, increment the number passed to
+  `database.set_db_version`. This will cause the framework to refuse to work
+  with previously created databases.
+- In order to to make an old database work with a new schema, you need to write
+  a database upgrade script, add database upgrade scripts in the `db_upgrade`
+  directory. The scripts must be called `X_some_name.sql` where X is the target
+  database version of the script. The `db.upgrade.DatabaseUpgrader` class can
+  then use the script to perform the upgrade:
+   - It runs all the applicable scripts in a single transaction, so if a script
+     fails the whole operation is cancelled. The foreign key constraints are
+     also disabled.
+   - Each script must update the database version by calling the
+     `pragma user_version=X` SQL command at the end. This is verified by the
+     upgrader.
+   - When executing, the upgrader shows each SQL command performed on the
+     database.
+   - For debugging purposes, a script can perform operations that returns
+     results, like `select`. Any rows returned by a command are printed by the
+     upgrader.
+   - At the end of each script, the upgrader verifies the foreign key
+     constraints and fails if some constraints are broken.
+   - At the end of the upgrade operation, the upgrader compares the database
+     tables schema to the ones defined in the model. If they do not match,
+     the whole operation is cancelled and an error is printed.
+
 Template manager
 ================
 

@@ -1,0 +1,1 @@
+This is a previous script so it should not be executed

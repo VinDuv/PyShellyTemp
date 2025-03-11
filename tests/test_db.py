@@ -2,12 +2,23 @@
 Database module tests
 """
 
-from unittest.mock import call, patch, mock_open, sentinel, Mock
-import unittest
+from unittest.mock import call, patch, mock_open, sentinel, ANY, MagicMock, Mock
+import contextlib
+import dataclasses
+import io
+import pathlib
 import sqlite3
+import sys
+import typing
+import unittest
 
 from pyshellytemp.db.access import Database, DBType, DBValueField, DBFKField
 from pyshellytemp.db.access import DBCmpOp, DBOrder, DBQuery, DBUniqueError
+from pyshellytemp.db.upgrade import DatabaseUpgrader
+
+
+PATCH_UPGRADE_DIR = 'pyshellytemp.db.upgrade.DatabaseUpgrader.DB_UPGRADE_DIR'
+TEST_DIR_PATH = pathlib.Path(__file__).parent / 'data' / 'db_upgrade'
 
 
 class FakeLock:
@@ -28,9 +39,14 @@ class DatabaseTests(unittest.TestCase):
         mock_sqlite3.threadsafety = 3
         conn = mock_sqlite3.connect.return_value
         conn.__enter__.return_value = conn
-        conn.execute.return_value.lastrowid = 42
+        conn.execute.side_effect = [
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (123,)}), # pragma user_version
+            Mock(lastrowid=None),
+        ]
 
         db = Database('/fakepath')
+        db.set_db_version(123)
 
         db_open = mock_open()
         with patch('pyshellytemp.db.access.open', db_open):
@@ -40,10 +56,12 @@ class DatabaseTests(unittest.TestCase):
 
         conn.execute.assert_has_calls([
             call('pragma foreign_keys = on;'),
+            call('pragma user_version;'),
             call('some sql;', ('a', 'b', 'c')),
         ])
 
         conn.execute.reset_mock()
+        conn.execute.side_effect = None
         conn.execute.return_value = sentinel.cursor
         res = db.fetch_raw('some fetch sql;', ('d', 'e', 'f'))
         conn.execute.assert_has_calls([
@@ -52,11 +70,49 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(res, sentinel.cursor)
 
     @patch('pyshellytemp.db.access.sqlite3')
+    def test_db_raw_conn(self, mock_sqlite3):
+        mock_sqlite3.threadsafety = 3
+        conn = mock_sqlite3.connect.return_value
+        conn.__enter__.return_value = conn
+        conn.execute.side_effect = [
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (123,)}), # pragma user_version
+            Mock(lastrowid=None),
+        ]
+
+        db = Database('/fakepath')
+        db.set_db_version(123)
+
+        with patch('pyshellytemp.db.access.open') as mock_opener:
+            mock_opener.side_effect = FileNotFoundError()
+            cur, target, raw_conn = db.prepare_db_upgrade()
+            self.assertEqual(cur, 0)
+            self.assertEqual(target, 123)
+            self.assertIsNone(raw_conn)
+
+        db_open = mock_open()
+        with patch('pyshellytemp.db.access.open', db_open):
+            cur, target, raw_conn = db.prepare_db_upgrade()
+            self.assertEqual(cur, 123)
+            self.assertEqual(target, 123)
+            self.assertIs(raw_conn, conn)
+
+    @patch('pyshellytemp.db.access.sqlite3')
     def test_db_paths(self, mock_sqlite3):
         mock_sqlite3.threadsafety = 3
         conn = mock_sqlite3.connect.return_value
         conn.__enter__.return_value = conn
-        conn.execute.return_value.lastrowid = 42
+        conn.execute.side_effect = [
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (0,)}), # pragma user_version
+            Mock(lastrowid=None),
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (0,)}), # pragma user_version
+            Mock(lastrowid=None),
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (0,)}), # pragma user_version
+            Mock(lastrowid=None),
+        ]
 
         db = Database()
         db.set_default_db_path('/default_path')
@@ -176,6 +232,12 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "Invalid database path"):
             db.set_db_path("")
 
+        with self.assertRaisesRegex(ValueError, "Invalid database version"):
+            db.set_db_version(2147483648)
+
+        with self.assertRaisesRegex(ValueError, "Invalid database version"):
+            db.set_db_version(-2147483649)
+
         # Database does not exist
         db = Database('/some_path')
         with patch('pyshellytemp.db.access.open',
@@ -207,6 +269,25 @@ class DatabaseTests(unittest.TestCase):
             Mock(side_effect=FileNotFoundError())):
             with self.assertRaisesRegex(SystemExit, 'Error creating database'):
                 db.init()
+
+        # Base database version
+        mock_sqlite3.connect.side_effect = None
+        conn = mock_sqlite3.connect.return_value
+        conn.__enter__.return_value = conn
+        conn.execute.side_effect = [
+            None, # pragma foreign_keys on
+            Mock(**{'fetchone.return_value': (123,)}), # pragma user_version
+            Mock(lastrowid=None),
+        ]
+
+        db = Database('/some_path')
+        db.set_db_version(456)
+
+        db_open = mock_open()
+        with patch('pyshellytemp.db.access.open', db_open):
+            with self.assertRaisesRegex(SystemExit, r"The database is at "
+                r"version 123, but is expected to be at version 456\."):
+                db.exec_raw('some sql;', ('a', 'b', 'c'))
 
     @patch('pyshellytemp.db.access.Database.exec_raw')
     def test_create_table(self, mock_exec):
@@ -356,3 +437,525 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "'xx' is not a valid "
             "comparator"):
             DBCmpOp.extract_comp('some_field__xx')
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeTableDef:
+    fields: dict[str, str]
+    tables: typing.ClassVar[dict[str, 'FakeTableDef']] = {}
+
+    def get_db_fields(self):
+        return self.fields
+
+    @staticmethod
+    def format_db_fields(fields):
+        return ', '.join(f'{key} {value}' for key, value in fields.items())
+
+
+@patch('pyshellytemp.db.upgrade.TableDef', FakeTableDef)
+@patch('pyshellytemp.db.upgrade.database')
+class DatabaseUpgradeTests(unittest.TestCase):
+    def test_no_models(self, mock_db):
+        with self.assertRaisesRegex(ValueError, "No models specified"):
+            DatabaseUpgrader()
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_no_db(self, mock_db):
+        mock_db.prepare_db_upgrade.return_value = 0, 123, None
+
+        with self.assertRaisesRegex(SystemExit, "The database does not exist"):
+            DatabaseUpgrader(None).do_upgrade()
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_no_upgrade_needed(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 123, 123, mock_conn
+
+        stream = io.StringIO()
+
+        with contextlib.redirect_stdout(stream):
+            DatabaseUpgrader(None).do_upgrade()
+
+        self.assertEqual(stream.getvalue(),
+            "The database is already up to date.\n")
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'no_match')
+    def test_no_scripts_in_dir(self, mock_db):
+        with self.assertRaisesRegex(SystemExit, "No database upgrade scripts "
+            "are defined"):
+            DatabaseUpgrader(None)
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_cur_version_too_old(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 121, 123, mock_conn
+
+        with self.assertRaisesRegex(SystemExit, "No available upgrade scripts "
+            "for starting version 121"):
+            DatabaseUpgrader(None).do_upgrade()
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_target_mismatch(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 124, mock_conn
+
+        with self.assertRaisesRegex(SystemExit, "App target version is 124 but "
+            "last script version is 123."):
+            DatabaseUpgrader(None).do_upgrade()
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_single_upgrade(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 123, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = [
+            ('a',) + (None,) * 6,
+            ('b',) + (None,) * 6,
+            ('c',) + (None,) * 6,
+        ]
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            [], # First script line
+            [(1, 2, 3)], # Second script line
+            [], # Foreign key check
+        ]
+
+        mock_curs.execute.return_value.fetchone.side_effect = [
+            (123,) # user_version after upgrade
+        ]
+
+        mock_curs.__iter__.return_value = iter([
+            ('a', 'CREATE TABLE a (x int)')
+        ])
+
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('bl/* ; */ah "/* */\\"\\";";'),
+            call.execute().fetchall(),
+            call.execute(' --comment\nabc'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.execute("select name, sql from sqlite_schema where type "
+                "= 'table';"),
+            call.__iter__(),
+            call.execute('commit;'),
+            call.execute('pragma foreign_keys=on;'),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(None, None, None),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_test.sql:'),
+            call('bl/* ; */ah "/* */\\"\\";";'),
+            call(''),
+            call(' --comment\nabc'),
+            call('a              |b              |c              '),
+            call('1              |2              |3              '),
+            call('')
+        ])
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_sql_error(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 123, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = [
+            ('a',) + (None,) * 6,
+            ('b',) + (None,) * 6,
+            ('c',) + (None,) * 6,
+        ]
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            sqlite3.OperationalError("Some error")
+        ]
+
+        with self.assertRaisesRegex(SystemExit, "SQL error: Some error"):
+            with patch('pyshellytemp.db.upgrade.print') as mock_print:
+                DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('bl/* ; */ah "/* */\\"\\";";'),
+            call.execute().fetchall(),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(SystemExit, ANY, ANY),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_test.sql:'),
+            call('bl/* ; */ah "/* */\\"\\";";'),
+        ])
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_target_version_not_changed(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 123, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = [
+            ('a',) + (None,) * 6,
+            ('b',) + (None,) * 6,
+            ('c',) + (None,) * 6,
+        ]
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            [], # First script line
+            [(1, 2, 3)], # Second script line
+            [], # Foreign key check
+        ]
+
+        mock_curs.execute.return_value.fetchone.side_effect = [
+            (122,) # user_version after upgrade
+        ]
+
+        with self.assertRaisesRegex(SystemExit, "The script did not correctly "
+            "update the target version"):
+            with patch('pyshellytemp.db.upgrade.print') as mock_print:
+                DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('bl/* ; */ah "/* */\\"\\";";'),
+            call.execute().fetchall(),
+            call.execute(' --comment\nabc'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(SystemExit, ANY, ANY),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_test.sql:'),
+            call('bl/* ; */ah "/* */\\"\\";";'),
+            call(''),
+            call(' --comment\nabc'),
+            call('a              |b              |c              '),
+            call('1              |2              |3              '),
+            call('')
+        ])
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'single')
+    def test_fk_error(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 123, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = [
+            ('a',) + (None,) * 6,
+            ('b',) + (None,) * 6,
+            ('c',) + (None,) * 6,
+        ]
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            [], # First script line
+            [(1, 2, 3)], # Second script line
+            [
+                ('a', 1, 'b', 0), # Foreign key check
+            ],
+        ]
+
+        mock_curs.execute.return_value.fetchone.side_effect = [
+            (123,) # user_version after upgrade
+        ]
+
+        mock_curs.__iter__.return_value = iter([
+            ('a', 'CREATE TABLE a (x int)')
+        ])
+
+        with self.assertRaisesRegex(SystemExit, '1'):
+            with patch('pyshellytemp.db.upgrade.print') as mock_print:
+                DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('bl/* ; */ah "/* */\\"\\";";'),
+            call.execute().fetchall(),
+            call.execute(' --comment\nabc'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(SystemExit, ANY, ANY),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_test.sql:'),
+            call('bl/* ; */ah "/* */\\"\\";";'),
+            call(''),
+            call(' --comment\nabc'),
+            call('a              |b              |c              '),
+            call('1              |2              |3              '),
+            call(''),
+            call('Foreign key errors after script execution:', file=sys.stderr),
+            call('Table a row 1: target b', file=sys.stderr),
+        ])
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'multi')
+    def test_multi_schema_table_missing(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 124, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = NotImplemented
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            [], # First script line
+            [], # Foreign key check
+            [], # Second script line
+            [], # Foreign key check
+        ]
+
+        mock_curs.execute.return_value.fetchone.side_effect = [
+            (123,), # user_version after upgrade1
+            (124,), # user_version after upgrade2
+        ]
+
+        # Table 'a' missing
+        mock_curs.__iter__.return_value = iter([])
+
+        with self.assertRaisesRegex(SystemExit, "Schema error: table 'a' is "
+            "missing"):
+            with patch('pyshellytemp.db.upgrade.print') as mock_print:
+                DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('script1;'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.execute('script2'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.execute("select name, sql from sqlite_schema where type "
+                "= 'table';"),
+            call.__iter__(),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(SystemExit, ANY, ANY),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_script1.sql:'),
+            call('script1;'),
+            call(''),
+            call('* Running 124_script2.sql:'),
+            call('script2'),
+            call(''),
+        ])
+
+    @patch(PATCH_UPGRADE_DIR, TEST_DIR_PATH / 'multi')
+    def test_multi_schema_mismatch(self, mock_db):
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_db.prepare_db_upgrade.return_value = 122, 124, mock_conn
+        mock_curs = mock_conn.cursor.return_value
+
+        FakeTableDef.tables = {
+            'a': FakeTableDef({'x': 'int'}),
+        }
+
+        mock_db.format_db_fields = FakeTableDef.format_db_fields
+
+        mock_curs.description = NotImplemented
+
+        mock_curs.execute.return_value.fetchall.side_effect = [
+            [], # First script line
+            [], # Foreign key check
+            [], # Second script line
+            [], # Foreign key check
+        ]
+
+        mock_curs.execute.return_value.fetchone.side_effect = [
+            (123,), # user_version after upgrade1
+            (124,), # user_version after upgrade2
+        ]
+
+        mock_curs.__iter__.return_value = iter([
+            ('a', 'CREATE TABLE a (x real)')
+        ])
+
+        with self.assertRaisesRegex(SystemExit, "1"):
+            with patch('pyshellytemp.db.upgrade.print') as mock_print:
+                DatabaseUpgrader(None).do_upgrade()
+
+        self.assertSequenceEqual(mock_conn.cursor.return_value.mock_calls, [
+            call.execute('pragma foreign_keys=off;'),
+            call.execute('begin transaction;'),
+            call.execute('script1;'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.execute('script2'),
+            call.execute().fetchall(),
+            call.execute('pragma user_version;'),
+            call.execute().fetchone(),
+            call.execute('pragma foreign_key_check;'),
+            call.execute().fetchall(),
+            call.execute("select name, sql from sqlite_schema where type "
+                "= 'table';"),
+            call.__iter__(),
+            call.close()
+        ])
+
+        mock_conn.assert_has_calls([
+            call.__enter__(),
+            call.cursor(),
+        ])
+        mock_conn.assert_has_calls([
+           call.__exit__(SystemExit, ANY, ANY),
+        ])
+
+        self.assertSequenceEqual(mock_print.mock_calls, [
+            call('* Running 123_script1.sql:'),
+            call('script1;'),
+            call(''),
+            call('* Running 124_script2.sql:'),
+            call('script2'),
+            call(''),
+            call("Schema error: table 'a' definition do not match",
+                file=sys.stderr),
+            call('Expected: x int', file=sys.stderr),
+            call('Actual:   x real', file=sys.stderr),
+        ])
+
+    def test_authorizer(self, _):
+        # pragma foreign_keys (note that the capitalisation used in the script
+        # is passed to the authorizer)
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_PRAGMA,
+                'fOrEigN_kEyS', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_IGNORE)
+        mock_print.assert_called_once_with(" (ignored, done by upgrader)")
+
+        # pragma user_version (same thing)
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_PRAGMA,
+                'user_version', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_OK)
+        mock_print.assert_not_called()
+
+        # Other pragmas are denied
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_PRAGMA,
+                'fullfsync', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_DENY)
+        mock_print.assert_called_once_with("Unknown pragma 'fullfsync'",
+            file=sys.stderr)
+
+        # begin/commit (the name is normalized)
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_TRANSACTION,
+                'BEGIN', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_IGNORE)
+        mock_print.assert_called_once_with(" (ignored, done by upgrader)")
+
+        # Other transactions are denied
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_TRANSACTION,
+                'ROLLBACK', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_DENY)
+        mock_print.assert_called_once_with("Unknown transaction 'ROLLBACK'",
+            file=sys.stderr)
+
+        # Other operations are allowed
+        with patch('pyshellytemp.db.upgrade.print') as mock_print:
+            res = DatabaseUpgrader._authorizer(sqlite3.SQLITE_ALTER_TABLE,
+                'a', NotImplemented, NotImplemented, NotImplemented)
+        self.assertIs(res, sqlite3.SQLITE_OK)
+        mock_print.assert_not_called()

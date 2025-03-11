@@ -7,10 +7,8 @@ import getpass
 
 from . import models
 from .db import database
+from .db.upgrade import DatabaseUpgrader
 from .session import User
-
-# Models import is required so the DB creation creates the models
-_ = models
 
 
 def run() -> None:
@@ -42,6 +40,9 @@ def run() -> None:
     create_user.add_argument('password', nargs='?', default='',
         help="Password of the user to create (leave blank for prompt)")
     create_user.set_defaults(func=_create_user)
+
+    upgrade_db = sub.add_parser('upgrade-db', help="Upgrade the database")
+    upgrade_db.set_defaults(func=_upgrade_db)
 
     args = parser.parse_args()
 
@@ -82,6 +83,15 @@ def _create_user(args: argparse.Namespace | None = None) -> None:
         password = getpass.getpass('Password: ')
 
     User.create_user(username, password)
+
+
+def _upgrade_db(_args: argparse.Namespace | None = None) -> None:
+    """
+    Perform a database upgrade.
+    """
+
+    upgrader = DatabaseUpgrader(models)
+    upgrader.do_upgrade()
 
 
 if __name__ == '__main__':
