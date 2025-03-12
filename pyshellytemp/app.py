@@ -13,7 +13,7 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device, Report, DevIdentify
+from .models import Settings, Device, ShellyV1HTInfo, Report, DevIdentify
 from .report_processor import ReportProcessor
 from .session import no_session, login_required, SessionData, User
 from .util import render, join_lines, float_or_default
@@ -95,12 +95,13 @@ def settings_view(request: HTTPRequest) -> HTTPResponse:
 
 
 @dataclasses.dataclass
-class DeviceFormData:
+class ShellyV1HTFormData:
     """
-    Handle a device configuration settings.
+    Handle a Shelly v1 H&T configuration settings.
     """
 
     device: Device
+    info: ShellyV1HTInfo
     name: str
     temp_thresh: str
     hum_thresh: str
@@ -119,6 +120,7 @@ class DeviceFormData:
         need_config_set = False
 
         device = self.device
+        info = self.info
 
         # Update form values
         self.name = data.get('dev_name', '').strip()
@@ -136,50 +138,50 @@ class DeviceFormData:
         if not 0 <= temp_thresh <= 20:
             errors.append("Temperature threshold should be between 0 and "
                 "15 °C.")
-        elif temp_thresh != device.temp_thresh:
+        elif temp_thresh != info.temp_thresh:
             need_config_set = True
 
         hum_thresh = float_or_default(self.hum_thresh, default=-1)
         if not 0 <= hum_thresh <= 100:
             errors.append("Humidity threshold should be between 0 and "
                 "100.")
-        elif hum_thresh != device.hum_thresh:
+        elif hum_thresh != info.hum_thresh:
             need_config_set = True
 
         temp_off = float_or_default(self.temp_off, default=-200)
         if not -50 <= temp_off <= 50:
             errors.append("Temperature offset should be between -50 and "
                 "+50 °C.")
-        elif temp_off != device.temp_off:
+        elif temp_off != info.temp_off:
             need_config_set = True
 
         hum_off = float_or_default(self.hum_off, default=-1)
         if not -50 <= hum_off <= 50:
             errors.append("Humidity offset should be between -50 and "
                 "50.")
-        elif hum_off != device.hum_off:
+        elif hum_off != info.hum_off:
             need_config_set = True
 
         if not errors:
             device.name = name
-            device.temp_thresh = temp_thresh
-            device.hum_thresh = hum_thresh
-            device.temp_off = temp_off
-            device.hum_off = hum_off
+            info.temp_thresh = temp_thresh
+            info.hum_thresh = hum_thresh
+            info.temp_off = temp_off
+            info.hum_off = hum_off
 
             if need_config_set:
-                device.need_config_set = True
+                info.need_config_set = True
 
         return errors, need_config_set
 
     @classmethod
-    def from_device(cls, device: Device) -> typing.Self:
+    def from_info(cls, device: Device, info: ShellyV1HTInfo) -> typing.Self:
         """
-        Initialize an instance from a device.
+        Initialize an instance from device info.
         """
 
-        return cls(device, device.name, str(device.temp_thresh),
-            str(device.hum_thresh), str(device.temp_off), str(device.hum_off))
+        return cls(device, info, device.name, str(info.temp_thresh),
+            str(info.hum_thresh), str(info.temp_off), str(info.hum_off))
 
 
 @login_required
@@ -189,38 +191,51 @@ def device_edit(request: HTTPRequest, device_id: str) -> HTTPResponse:
     Device settings view
     """
 
-    session_data = request.get_ext(SessionData)
-
     device = Device.get_opt(ident=device_id)
     if device is None:
         return HTTPTextResponse.msg_page(HTTPStatus.NOT_FOUND)
+
+    return _device_edit_shelly_v1_h_t(request, device)
+
+
+def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
+    HTTPResponse:
+    """
+    Settings view for Shelly v1 H&T devices
+    """
+
+    session_data = request.get_ext(SessionData)
 
     messages: list[str] = []
     if session_data.message:
         messages.append(session_data.message)
 
-    form = DeviceFormData.from_device(device)
+    info = ShellyV1HTInfo.get_one(device=device)
+    form = ShellyV1HTFormData.from_info(device, info)
 
     if request.post is not None:
         messages, need_config_set = form.validate(request.post.get_form_data())
 
         if not messages:
             device.save()
+            info.save()
 
             if need_config_set:
                 session_data.set_next_message("Settings updated. They will be "
                     "applied at the next device refresh.")
             else:
                 session_data.set_next_message("Settings updated.")
-            return redirect_to_view(request, device_edit, device_id=device_id)
+            return redirect_to_view(request, device_edit,
+                device_id=device.ident)
 
     ctx = {
         'device': device,
+        'info': info,
         'form': form,
         'message': join_lines(messages),
     }
 
-    return render(request, 'app/device.html', ctx)
+    return render(request, 'app/device_shelly_v1_h_t.html', ctx)
 
 
 @login_required

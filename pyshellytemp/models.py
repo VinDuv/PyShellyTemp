@@ -16,7 +16,7 @@ DISCOVERY_DELAY = datetime.timedelta(minutes=10)
 
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
-database.set_db_version(1)
+database.set_db_version(2)
 
 
 class Settings(DBObject, table='settings'):
@@ -209,8 +209,36 @@ class Device(DBObject, table='devices'):
             descr = self.name.replace('_', ' ')
             return descr[0] + descr[1:].lower()
 
+    @reg_db_type(str)
+    @enum.verify(enum.UNIQUE)
+    class Type(enum.Enum):
+        """
+        Device type
+        """
+
+        SHELLY_V1_H_T = 'shv1ht'
+
+        @staticmethod
+        def py_to_db(py_val: 'Device.Type') -> str:
+            "Converts a type value into a database value"
+            return py_val.value
+
+        @classmethod
+        def db_to_py(cls, db_val: str) -> 'Device.Type':
+            "Converts a database value into a status value"
+            return cls(db_val)
+
+        def __str__(self) -> str:
+            if self is self.__class__.SHELLY_V1_H_T:
+                return "Shelly v1 H&T"
+
+            typing.assert_never(self)
+
     # Device identifier (six hexadecimal digits, part of the MAC address)
     ident: str = unique()
+
+    # Device type
+    type: Type
 
     # Device name
     name: str
@@ -218,23 +246,54 @@ class Device(DBObject, table='devices'):
     # Current device status
     status: Status
 
-    # Last temperature received from the device
-    last_temp: float
+    # Last temperature received from the device (None if never received)
+    last_temp: typing.Optional[float]
 
-    # Last humidity received from the device
-    last_hum: float
+    # Last humidity received from the device (None if never received)
+    last_hum: typing.Optional[float]
 
-    # Last report time
+    # Last report time (set to current time at initial setup)
     last_report: datetime.datetime
+
+    # Battery percentage
+    bat_percent: float
+
+    @property
+    def temp(self) -> str:
+        "Human-readable temperature"
+        return "—" if self.last_temp is None else f"{self.last_temp:.1f} °C"
+
+    @property
+    def hum(self) -> str:
+        "Human-readable humidity"
+        return "—" if self.last_hum is None else f"{self.last_hum:.0f} %"
+
+    @property
+    def last_report_disp(self) -> str:
+        "Human-readable last report date"
+        return self.last_report.strftime('%d/%m/%Y %H:%M:%S')
+
+    @property
+    def day_report_count(self) -> int:
+        "Number of reports in the last 24 hours"
+
+        cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
+        return Report.get_all(device=self, tstamp__gte=cutoff).count()
+
+
+class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
+    """
+    Device information specific to Shelly v1 H&T devices.
+    """
+
+    # Associated device (type SHELLY_V1_H_T)
+    device: Device = unique()
 
     # Last data refresh time
     last_refresh: datetime.datetime
 
     # IP address of the device
     ip_addr: str
-
-    # Battery percentage
-    bat_percent: float
 
     # Battery voltage
     bat_volt: float
@@ -263,22 +322,6 @@ class Device(DBObject, table='devices'):
 
     # Indicate if the device settings changed and need to be applied
     need_config_set: bool
-
-    # Display helpers
-    @property
-    def temp(self) -> str:
-        "Human-readable temperature"
-        return f"{self.last_temp:.1f} °C"
-
-    @property
-    def hum(self) -> str:
-        "Human-readable humidity"
-        return f"{self.last_hum:.0f} %"
-
-    @property
-    def last_report_disp(self) -> str:
-        "Human-readable last report date"
-        return self.last_report.strftime('%d/%m/%Y %H:%M:%S')
 
     @property
     def last_refresh_disp(self) -> str:
@@ -327,13 +370,6 @@ class Device(DBObject, table='devices'):
         percent = 100 * used / total
 
         return f"{percent:.2f} % ({used / 1024:.1f} / {total / 1024:.1f} KiB)"
-
-    @property
-    def day_report_count(self) -> int:
-        "Number of reports in the last 24 hours"
-
-        cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
-        return Report.get_all(device=self, tstamp__gte=cutoff).count()
 
 
 class Report(DBObject, table='reports'):

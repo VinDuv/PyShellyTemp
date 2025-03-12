@@ -44,12 +44,12 @@ authentication is needed.
 <h2>Devices</h2>
 <table>
 <tr>
-<th>Name</th><th>Identifier</th><th>Status</th><th>Last report</th><th>Last refresh</th><th>Battery</th><th>Operations</th>
+<th>Name</th><th>Type</th><th>Identifier</th><th>Status</th><th>Last report</th><th>Battery</th><th>Operations</th>
 </tr>
 {% for device, mod_path, delete_path in device_info %}
 <tr>
-<td><a href="{{ mod_path }}">{{ device.name }}</a></td><td>{{ device.ident }}</td><td>{{ device.status }}</td>
-<td>{{ device.last_report_disp }}</td><td>{{ device.last_refresh_disp }}</td>
+<td><a href="{{ mod_path }}">{{ device.name }}</a></td><td>{{ device.type }}</td><td>{{ device.ident }}</td>
+<td>{{ device.status }}</td><td>{{ device.last_report_disp }}</td>
 <td>{{ device.bat_percent }} %</td><td><a href="{{ mod_path }}">Edit</a> • <a href="{{ delete_path }}">Delete</a></td>
 </tr>
 {% else %}

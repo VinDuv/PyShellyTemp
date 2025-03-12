@@ -1,0 +1,29 @@
+{% extend "app/device.html" %}
+{% block 'dev_info_table' %}
+<tr><tr>
+<tr><th colspan="2">Status at last refresh ({{ info.last_refresh_disp }})</th></tr>
+<tr><td>Status</td><td>{{ device.status }}{% if info.need_config_set %}, will update settings at next refresh{% endif %}</td></tr>
+<tr><td>IP address</td><td>{{ info.ip_addr }}</td></tr>
+<tr><td>Wi-Fi signal</td><td>{{ info.wifi_rssi_disp }}</td></tr>
+<tr><td>Battery</td><td>{{ device.bat_percent }} % ({{ info.bat_volt }} V)</td></tr>
+<tr><td>Update status</td><td style="font-family: monospace">{{ info.update_status }}</td></tr>
+<tr><td>RAM usage</td><td>{{ info.mem_usage }}</td></tr>
+<tr><td>Filesystem usage</td><td>{{ info.fs_usage }}</td></tr>
+<tr></tr>
+<tr><th colspan="2">Report thresholds configuration</th><tr>
+<tr><td>Temperature threshold</td><td><input type="text" id="temp_thresh" name="temp_thresh" value="{{ form.temp_thresh }}" /></td></tr>
+<tr><td>Humidity threshold</td><td><input type="text" id="hum_thresh" name="hum_thresh" value="{{ form.hum_thresh }}" /></td></tr>
+<tr></tr>
+<tr><th colspan="2">Sensor calibration configuration</th><tr>
+<tr><td>Temperature offset</td><td><input type="text" id="temp_off" name="temp_off" value="{{ form.temp_off }}" /></td></tr>
+<tr><td>Humidity offset</td><td><input type="text" id="hum_off" name="hum_off" value="{{ form.hum_off }}" /></td></tr>
+{% endblock %}
+
+{% block 'form_bottom' %}
+<div class="help_text">
+Changes to the report thresholds and sensor calibration will be performed the
+next time the device wakes up and sends a report.<br />
+To perform the change immediately, wake up the device by briefly pressing its
+button after saving the changes.
+</div>
+{% endblock %}
