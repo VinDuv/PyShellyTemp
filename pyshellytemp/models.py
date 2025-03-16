@@ -4,17 +4,19 @@ Application models
 
 import datetime
 import enum
+import logging
 import math
 import typing
 
 from .db import DBObject, database, unique, reg_db_type
 
 
+LOGGER = logging.getLogger(__name__)
 DISCOVERY_DELAY = datetime.timedelta(minutes=10)
 
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
-database.set_db_version(0)
+database.set_db_version(1)
 
 
 class Settings(DBObject, table='settings'):
@@ -28,10 +30,6 @@ class Settings(DBObject, table='settings'):
     # Username and password used to query devices status
     dev_username: str
     dev_password: str
-
-    # Used for the device identification feature
-    dev_identify: str
-    identify_until: datetime.datetime
 
     def set_discovery(self, *, enabled: bool) -> None:
         """
@@ -71,11 +69,102 @@ class Settings(DBObject, table='settings'):
             settings.discover_until = datetime.datetime(2000, 1, 1)
             settings.dev_username = ''
             settings.dev_password = ''
-            settings.dev_identify = ''
-            settings.identify_until = datetime.datetime(2000, 1, 1)
             settings.save()
 
             return settings
+
+
+class DevIdentify(DBObject, table='dev_identify'):
+    """
+    Device identification feature. Use a single table row to store the status.
+    """
+
+    SEARCH_IDENT: typing.ClassVar[str] = 'search'
+
+    # Device that was identified. Set to SEARCH_IDENT when searching.
+    identify: str
+    until: datetime.datetime
+
+    @classmethod
+    def get_identified_device(cls) -> str | None:
+        """
+        Get the identifier of the identified device.
+        Returns an empty string iff no identification is in progress.
+        Returns None if identification is in progress.
+        """
+
+        status = cls._get()
+
+        if status.identify == cls.SEARCH_IDENT:
+            if status.until < datetime.datetime.now():
+                LOGGER.info("Identify operation timed out")
+                status.identify = ''
+                status.save()
+                return ''
+
+            return None
+
+        return status.identify
+
+    @classmethod
+    def device_identified(cls, ident: str) -> None:
+        """
+        Should be called when a device button is pressed, with the device
+        identifier. If the device identification operation is in progress,
+        this will complete it.
+        """
+
+        status = cls._get()
+
+        if status.identify != cls.SEARCH_IDENT:
+            return
+
+        LOGGER.info("Identify operation matched device %s", ident)
+        status.identify = ident
+        status.save()
+
+    @classmethod
+    def start_identification(cls) -> None:
+        """
+        Start the identification operation
+        """
+
+        until = datetime.datetime.now() + datetime.timedelta(minutes=5)
+
+        LOGGER.info("Identify operation started (until %s)", until)
+
+        status = cls._get()
+        status.identify = cls.SEARCH_IDENT
+        status.until = until
+        status.save()
+
+    @classmethod
+    def cancel_identification(cls) -> None:
+        """
+        Cancel an identification operation that is running.
+        """
+
+        LOGGER.info("Identify operation cancelled")
+
+        status = cls._get()
+        status.identify = ''
+        status.save()
+
+    @classmethod
+    def _get(cls) -> typing.Self:
+        """
+        Returns the identify status, creating it if needed.
+        """
+
+        try:
+            return cls.get_one()
+        except KeyError:
+            status = cls.new_empty()
+            status.id = 1
+            status.until = datetime.datetime(2000, 1, 1)
+            status.save()
+
+            return status
 
 
 class Device(DBObject, table='devices'):

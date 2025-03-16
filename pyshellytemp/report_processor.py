@@ -14,14 +14,11 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device, Report
+from .models import Settings, Device, Report, DevIdentify
 
 
 # Delay between two refreshes of the device status (battery level, etc)
 REFRESH_INTERVAL = datetime.timedelta(hours=12)
-
-# Indicates that a device identify operation is in progress
-DEV_IDENTIFY_IDENT = 'search'
 
 LOGGER = logging.getLogger(__name__)
 
@@ -227,15 +224,10 @@ class ReportProcessor:
             LOGGER.debug("Refreshing device %s status (outdated)" , device.name)
             need_refresh = True
 
-        elif settings.dev_identify == DEV_IDENTIFY_IDENT:
-            if settings.identify_until < datetime.datetime.now():
-                LOGGER.info("Identify operation timed out")
-                settings.dev_identify = ''
-                settings.save()
-            else:
-                LOGGER.debug("Refreshing device %s status (for device "
-                    "identify)", device.name)
-                need_refresh = True
+        elif DevIdentify.get_identified_device() is None:
+            LOGGER.debug("Refreshing device %s status (for device identify)",
+                device.name)
+            need_refresh = True
 
         if need_refresh:
             try:
@@ -253,10 +245,7 @@ class ReportProcessor:
                     device.need_config_set = False
 
                 if button_act:
-                    LOGGER.info("Identify operation matched device %s",
-                        device.ident)
-                    settings.dev_identify = device.ident
-                    settings.save()
+                    DevIdentify.device_identified(device.ident)
 
             # Need to fetch update status later
             update_status.append(device)

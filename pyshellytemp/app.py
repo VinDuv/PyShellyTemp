@@ -13,8 +13,8 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device, Report
-from .report_processor import ReportProcessor, DEV_IDENTIFY_IDENT
+from .models import Settings, Device, Report, DevIdentify
+from .report_processor import ReportProcessor
 from .session import no_session, login_required, SessionData, User
 from .util import render, join_lines, float_or_default
 from .web import route, redirect_to_view, HTTPRequest, HTTPResponse, view_path
@@ -259,44 +259,30 @@ def identify(request: HTTPRequest) -> HTTPResponse:
     Device identify view
     """
 
-    settings = Settings.get()
-
     if request.post is not None:
         if 'cancel' in request.post.get_form_data():
-            LOGGER.info("Identify operation cancelled")
-            settings.dev_identify = ''
-            settings.save()
+            DevIdentify.cancel_identification()
             return redirect_to_view(request, settings_view)
 
-        until = datetime.datetime.now() + datetime.timedelta(minutes=5)
-        LOGGER.info("Identify operation started (until %s)", until)
-        settings.dev_identify = DEV_IDENTIFY_IDENT
-        settings.identify_until = until
-        settings.save()
+        DevIdentify.start_identification()
         return redirect_to_view(request, identify)
 
-    dev_identify = settings.dev_identify
+    identified = DevIdentify.get_identified_device()
 
-    if dev_identify == '':
+    if identified == '':
         # No identify in progress
         return redirect_to_view(request, settings_view)
 
-    if dev_identify == DEV_IDENTIFY_IDENT:
+    if identified is None:
         # Identify operation in progress
-
-        if settings.identify_until < datetime.datetime.now():
-            LOGGER.info("Identify operation timed out")
-            settings.dev_identify = ''
-            settings.save()
-            return redirect_to_view(request, settings_view)
 
         headers = {
             'Refresh': '2',
         }
         return render(request, 'app/identify.html', headers=headers)
 
-    LOGGER.info("Identify operation completed with ID %s", dev_identify)
-    return redirect_to_view(request, device_edit, device_id=dev_identify)
+    LOGGER.info("Identify operation completed with ID %s", identified)
+    return redirect_to_view(request, device_edit, device_id=identified)
 
 
 @dataclasses.dataclass
