@@ -1,0 +1,12 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Device registration{% endblock %}
+{% block 'contents' %}
+<section>
+<h2>Device registration</h2>
+Waiting for the new device to contact the server for the first time.<br />
+If this page persists, check that the report URL is correctly set on the device.
+<form method="post">
+<input type="submit" name="cancel" value="Cancel registration" />
+</form>
+</section>
+{% endblock %}

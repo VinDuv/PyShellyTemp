@@ -10,13 +10,21 @@
 <tr><td>RAM usage</td><td>{{ info.mem_usage }}</td></tr>
 <tr><td>Filesystem usage</td><td>{{ info.fs_usage }}</td></tr>
 <tr></tr>
+<tr><th colspan="2">Authentication</th><tr>
+<tr><td>Username</td><td><input type="text" id="dev_uname" name="dev_uname" value="{{ form.creds.dev_uname }}" /></td></tr>
+<tr><td>Password</td><td><input type="text" id="dev_pass" name="dev_pass" class="hidden_text" value="{{ form.creds.dev_pass }}" /></td></tr>
+<tr><td colspan="2" class="help_text">
+The username and password are used to query the device’s status.<br />
+They need to match the credentials set on the device’s Web interface.
+</tr></tr>
+<tr></tr>
 <tr><th colspan="2">Report thresholds configuration</th><tr>
-<tr><td>Temperature threshold</td><td><input type="text" id="temp_thresh" name="temp_thresh" value="{{ form.temp_thresh }}" /></td></tr>
-<tr><td>Humidity threshold</td><td><input type="text" id="hum_thresh" name="hum_thresh" value="{{ form.hum_thresh }}" /></td></tr>
+<tr><td>Temperature threshold</td><td><input type="text" id="temp_thresh" name="temp_thresh" value="{{ form.cfg.temp_thresh }}" /></td></tr>
+<tr><td>Humidity threshold</td><td><input type="text" id="hum_thresh" name="hum_thresh" value="{{ form.cfg.hum_thresh }}" /></td></tr>
 <tr></tr>
 <tr><th colspan="2">Sensor calibration configuration</th><tr>
-<tr><td>Temperature offset</td><td><input type="text" id="temp_off" name="temp_off" value="{{ form.temp_off }}" /></td></tr>
-<tr><td>Humidity offset</td><td><input type="text" id="hum_off" name="hum_off" value="{{ form.hum_off }}" /></td></tr>
+<tr><td>Temperature offset</td><td><input type="text" id="temp_off" name="temp_off" value="{{ form.cfg.temp_off }}" /></td></tr>
+<tr><td>Humidity offset</td><td><input type="text" id="hum_off" name="hum_off" value="{{ form.cfg.hum_off }}" /></td></tr>
 {% endblock %}
 
 {% block 'form_bottom' %}

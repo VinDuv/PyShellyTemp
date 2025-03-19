@@ -1,0 +1,45 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Add device{% endblock %}
+{% block 'contents' %}
+<nav>
+<a href="{{ urlprefix }}/settings/">« Settings</a>
+</nav>
+<section>
+<h2>Add device</h2>
+<fieldset>
+<legend>Shelly v1 H&T</legend>
+<p>
+Shelly v1 H&T devices can be automatically configured and registered by the
+<span style="font-family: monospace">shelly_v1_config.py</span> script.
+</p>
+<p>
+To manually add a Shelly v1 H&T device, configure it so it sends its reports to
+<span style="font-family: monospace; font-weight: bold">
+http://&lt;server address&gt;{{ urlprefix }}/report</span> and fill the
+following form.
+</p>
+<form method="post" autocomplete="off" class="space10em">
+{% if message %}<div class="message">{{ message }}</div>{% endif %}
+<label for="dev_ident">Device ID:</label>
+<input type="text" name="dev_ident" id="dev_ident" spellcheck="false" value="{{dev_ident}}" size="6" /><br />
+<div class="help_text">
+The device identifier is a 6-character hexadecimal string that uniquely
+identifies the device. You can find it in the Web interface of the device, under
+Settings > Device info. If you do not know it, you can leave the field blank and
+it will be automatically filled when the new Shelly v1 H&T device sends a
+request for the first time.
+</div>
+<label for="dev_uname">Device login:</label>
+<input type="text" name="dev_uname" id="dev_uname" spellcheck="false" value="{{dev_uname}}" /><br />
+<label for="dev_pass">Device password:</label>
+<input type="text" name="dev_pass" id="dev_pass" class="hidden_text" spellcheck="false" value="{{dev_pass}}" />
+<div class="help_text">
+Username and password used to login on the Shelly device’s web interface. These
+are used to query the device’s status and change its settings automatically.
+This can be left blank if no authentication is needed.
+</div>
+<input type="submit" name="add_v1ht" value="Add Shelly v1 H&T" />
+</form>
+</fieldset>
+</section>
+{% endblock %}

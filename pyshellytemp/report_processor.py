@@ -14,7 +14,7 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device, ShellyV1HTInfo, Report, DevIdentify
+from .models import Device, ShellyV1HTInfo, Report, DevIdentify
 
 
 # Delay between two refreshes of the device status (battery level, etc)
@@ -33,7 +33,6 @@ class QueryRes(typing.NamedTuple):
     Result of a device query.
     """
 
-    mac_addr: str
     status: Device.Status
     bat_percent: float
     button_wake: bool
@@ -111,9 +110,8 @@ class ReportProcessor:
                 item = req_queue.get(timeout=timeout)
             except queue.Empty:
                 # Timeout, perform update status fetch for all devices
-                settings = Settings.get()
                 for dev_info in update_status:
-                    cls._fetch_dev_update_status(dev_info, settings)
+                    cls._fetch_dev_update_status(dev_info)
                 update_status.clear()
                 continue
 
@@ -164,54 +162,38 @@ class ReportProcessor:
         Device | None:
         """
         Handles a device whose identifier is not registered in the database yet.
-        Creates a Device object and completes it. If it is valid, returns it.
-        If the device is invalid, returns None.
+        If a device being registered is present, sets its identifier and return
+        it.
         """
 
-        device = Device.new_empty()
-        info = ShellyV1HTInfo.new_empty()
-
-        device.type = Device.Type.SHELLY_V1_H_T
-        device.name = ident
-        device.last_report = req_date
-
-        info.ip_addr = addr
-        info.last_refresh = req_date
-
-        settings = Settings.get()
-        if req_date > settings.discover_until:
+        device = Device.get_opt(ident=ShellyV1HTInfo.REG_IDENT)
+        if device is None:
             LOGGER.warning("Cannot register device %s (%s): discovery disabled",
                 ident, addr)
             return None
 
-        try:
-            mac_addr, status, bat_percent, _ = cls._query_device_info(info,
-                settings)
-        except cls.QueryError as err:
-            LOGGER.warning("Cannot register device %s (%s): %s", ident, addr,
-                err)
-            return None
-
-        if mac_addr[6:] != ident:
-            LOGGER.warning("Cannot register device %s (%s): identifier does "
-                "not match MAC address %s", ident, addr, mac_addr)
-            return None
-
         device.ident = ident
+        device.name = ident
+        device.last_report = req_date
+        device.save()
+
+        info = ShellyV1HTInfo.get_one(device=device)
+
+        info.ip_addr = addr
+        info.last_refresh = req_date
+
+        try:
+            status, bat_percent, _ = cls._query_device_info(info)
+        except cls.QueryError as err:
+            LOGGER.warning("Request error while registering %s (%s): %s", ident,
+                addr, err)
+            device.status = err.status
+            info.save()
+            return device
+
         device.status = status
         device.bat_percent = bat_percent
-
-        info.need_config_set = False
-        info.update_status = 'unknown'
-
-        # Need to save the device so we can save the info, so all device fields
-        # need to be filled now. The correct values will be saved just after
-        # this method returns.
-        device.last_temp = None
-        device.last_hum = None
-
         device.save()
-        info.device = device
         info.save()
 
         LOGGER.info("Registered device %s (%s), status %s",
@@ -231,7 +213,6 @@ class ReportProcessor:
         """
 
         status = Device.Status.OK
-        settings = Settings.get()
         info = ShellyV1HTInfo.get_one(device=device)
         need_refresh = False
         set_config: QueryDict | None = None
@@ -252,6 +233,13 @@ class ReportProcessor:
                 'humidity_offset': info.hum_off,
             }
 
+        elif (info.last_refresh is None or device.status is
+            Device.Status.AUTH_ERROR):
+            LOGGER.debug("Refreshing device %s status (new registration or "
+                "auth error)",
+                device.name)
+            need_refresh = True
+
         elif (req_date - info.last_refresh) > REFRESH_INTERVAL:
             LOGGER.debug("Refreshing device %s status (outdated)" , device.name)
             need_refresh = True
@@ -262,8 +250,10 @@ class ReportProcessor:
             need_refresh = True
 
         if need_refresh:
+            info.last_refresh = req_date
+
             try:
-                query_res = cls._query_device_info(info, settings, set_config)
+                query_res = cls._query_device_info(info, set_config)
                 status = query_res.status
                 device.bat_percent = query_res.bat_percent
 
@@ -273,7 +263,6 @@ class ReportProcessor:
                 status = err.status
             else:
                 # No error
-                info.last_refresh = req_date
                 if set_config is not None:
                     LOGGER.info("New configuration applied on %s", device.name)
                     info.need_config_set = False
@@ -290,7 +279,7 @@ class ReportProcessor:
         device.status = status
 
     @classmethod
-    def _query_device_info(cls, info: ShellyV1HTInfo, settings: Settings,
+    def _query_device_info(cls, info: ShellyV1HTInfo,
         set_config: QueryDict | None = None) -> QueryRes:
         """
         Queries the device properties and configuration and update the device
@@ -304,15 +293,13 @@ class ReportProcessor:
 
         conn = HTTPConnection(info.ip_addr, timeout=1)
         try:
-            return cls._query_dev_info_with_conn(conn, info, settings,
-                set_config)
+            return cls._query_dev_info_with_conn(conn, info, set_config)
         finally:
             conn.close()
 
     @classmethod
     def _query_dev_info_with_conn(cls, conn: HTTPConnection,
-        info: ShellyV1HTInfo, settings: Settings,
-        set_config: QueryDict | None = None) -> QueryRes:
+        info: ShellyV1HTInfo, set_config: QueryDict | None = None) -> QueryRes:
         """
         Queries the device properties and configuration using the provided
         HTTP connection and update the device object.
@@ -322,7 +309,7 @@ class ReportProcessor:
         up by its button.
         """
 
-        headers = cls._get_auth_headers(settings)
+        headers = cls._get_auth_headers(info)
         json_data = cls._query(conn, '/status', headers)
 
         bat_percent = cls._get_float(json_data, 'bat', 'value',
@@ -337,8 +324,6 @@ class ReportProcessor:
         info.mem_free = cls._get_int(json_data, 'ram_free', min_v=0)
         info.fs_size = cls._get_int(json_data, 'fs_size', min_v=0)
         info.fs_free = cls._get_int(json_data, 'fs_free', min_v=0)
-
-        mac_addr = cls._get_str(json_data, 'mac', pattern=cls.MAC_RE)
 
         if not cls._get_bool(json_data, 'is_valid'):
             status = Device.Status.DEVICE_NOT_VALID
@@ -365,11 +350,10 @@ class ReportProcessor:
         info.hum_off = cls._get_float(json_data, 'temperature_offset',
             min_v=0.0)
 
-        return QueryRes(mac_addr, status, bat_percent, button_act)
+        return QueryRes(status, bat_percent, button_act)
 
     @classmethod
-    def _fetch_dev_update_status(cls, info: ShellyV1HTInfo,
-        settings: Settings) -> None:
+    def _fetch_dev_update_status(cls, info: ShellyV1HTInfo) -> None:
         """
         Fetches the device update status. This is done separately from the rest
         of the updates because the Shelly H&T device takes a couple seconds to
@@ -388,7 +372,7 @@ class ReportProcessor:
 
         conn = HTTPConnection(info.ip_addr, timeout=1)
         try:
-            headers = cls._get_auth_headers(settings)
+            headers = cls._get_auth_headers(info)
             json_data = cls._query(conn, '/status', headers)
             info.update_status = cls._get_str(json_data, 'update', 'status')
 
@@ -405,14 +389,14 @@ class ReportProcessor:
         info.save()
 
     @staticmethod
-    def _get_auth_headers(settings: Settings) -> dict[str, str]:
+    def _get_auth_headers(info: ShellyV1HTInfo) -> dict[str, str]:
         """
         Return the authentication headers required to perform a status fetch
         on the device.
         """
 
-        if settings.dev_username or settings.dev_password:
-            auth_str = f'{settings.dev_username}:{settings.dev_password}'
+        if info.username or info.password:
+            auth_str = f'{info.username}:{info.password}'
             auth_64 = base64.b64encode(auth_str.encode('utf-8')).decode('ascii')
             return {
                 'Authorization': f'Basic {auth_64}',

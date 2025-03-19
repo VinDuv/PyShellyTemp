@@ -5,7 +5,7 @@ This script auto-configures a Shelly H&T device to communicate with
 PyShellyTemp.
 """
 
-from http.client import HTTPConnection
+from http.client import HTTPConnection, RemoteDisconnected
 from urllib.parse import urlparse, urlunparse, urlencode
 import argparse
 import base64
@@ -13,10 +13,15 @@ import errno
 import getpass
 import ipaddress
 import json
+import secrets
+import socket
+import string
+import sys
 import time
 import typing
-import socket
-import sys
+
+
+PWD_CHARS = string.ascii_letters + string.digits
 
 
 def run() -> None:
@@ -32,29 +37,77 @@ def run() -> None:
         "beforehand. You will need an account on it.")
     print("Enter the URL of the PyShellyTemp server (HTTP):")
     srv_conn = ServerConn.query_user()
-    settings = srv_conn.get_settings()
-    while True:
-        dev_conn = DeviceConn.wait_for_device()
-        time.sleep(1)
-        srv_conn.enable_discovery()
-        time.sleep(1)
-        dev_conn.apply_settings(settings)
+    srv_conn.authenticate()
 
-        res = input('Configure another device? [y/N] ').lower()
-        if res not in {'y', 'yes'}:
+    wifi = WiFiSettings.query()
+
+    while True:
+        res = prompt_yn("Set up authentication on the device?")
+        if res:
+            print("Enter the username and password you wish to use. Leave "
+                "blank to use auto-generated values.")
+            dev_uname = input_or_exit("Username: ") or 'shellyuser'
+            dev_passwd = input_or_exit("Password: ", pwd=True)
+            if not dev_passwd:
+                dev_passwd = ''.join(secrets.choice(PWD_CHARS) for _ in
+                    range(10))
+        else:
+            dev_uname = ''
+            dev_passwd = ''
+
+        device = DeviceConn.wait_for_device()
+        dev_ident = device.dev_ident
+
+        print(f"Registering device {dev_ident}…")
+        report_url = srv_conn.register(dev_ident, dev_uname, dev_passwd)
+
+        print("Configuring device...")
+        device.apply_settings(report_url, wifi, dev_uname, dev_passwd)
+
+        if not prompt_yn("Configure another device?", default=False):
             return
 
 
-class DevSettings(typing.NamedTuple):
+class WiFiSettings(typing.NamedTuple):
     """
-    Configuration parameters for the Shelly device
+    WiFi configuration settings.
     """
 
-    report_url: str
-    dev_username: str
-    dev_password: str
-    wifi_ssid: str
-    wifi_password: str
+    ssid: str
+    password: str
+
+    @classmethod
+    def query(cls) -> typing.Self:
+        """
+        Prompt the user for the WiFi configuration.
+        """
+
+        print("Enter the WiFi settings that will be used by the Shelly H&T:")
+
+        wifi_ssid = ''
+        while not wifi_ssid:
+            wifi_ssid = input_or_exit('SSID: ')
+
+        ask_disp = True
+
+        while True:
+            wifi_password = input_or_exit('Password: ', pwd=True)
+
+            if ask_disp:
+                res = prompt_yn("Display entered password for 2 secs?",
+                    default=False)
+                if not res:
+                    return cls(wifi_ssid, wifi_password)
+
+                ask_disp = False
+
+            print(wifi_password, end='', flush=True)
+            time.sleep(3)
+            print('\r' + ' ' * len(wifi_password) + '\r', end='',
+                flush=True)
+
+            if prompt_yn("OK?"):
+                return cls(wifi_ssid, wifi_password)
 
 
 class DeviceConn:
@@ -89,18 +142,28 @@ class DeviceConn:
 
             return conn
 
-    def __init__(self, conn: HTTPConnection):
+    def __init__(self, conn: HTTPConnection, dev_ident: str):
         self._conn = conn
+        self._dev_ident = dev_ident
         self._auth_header = ''
 
-    def apply_settings(self, settings: DevSettings) -> None:
+    @property
+    def dev_ident(self) -> str:
+        """
+        Return the device ID.
+        """
+
+        return self._dev_ident
+
+    def apply_settings(self, report_url: str, wifi: WiFiSettings,
+        dev_uname: str, dev_passwd: str) -> None:
         """
         Apply the settings to the specified device.
         """
 
         print("Configuring device...")
         print(" - Setting up report action")
-        urls_arg = {'urls[]': settings.report_url}
+        urls_arg = {'urls[]': report_url}
         result = self._post('/settings/actions', index='0',
             name='report_url', enabled='true', **urls_arg)
         print(f"   {result['actions']['report_url']}")
@@ -116,21 +179,21 @@ class DeviceConn:
             tz_utc_offset='0', tz_dst='0', tz_dst_auto='0')
         print(f"    {result}")
 
-        if settings.dev_username:
+        if dev_uname or dev_passwd:
             print(" - Setting up authentification")
             result = self._post('/settings/login', enabled='true',
-                username=settings.dev_username, password=settings.dev_password)
+                username=dev_uname, password=dev_passwd)
             result['password'] = '*******'
             print(f"   {result}")
 
             # Need auth for the rest of the config
-            auth_str = f'{settings.dev_username}:{settings.dev_password}'
+            auth_str = f'{dev_uname}:{dev_passwd}'
             auth_64 = base64.b64encode(auth_str.encode('utf-8')).decode('ascii')
             self._auth_header = f'Basic {auth_64}'
 
         print(" - Configuring WiFi")
-        result = self._post('/settings/sta', enabled='true',
-            ssid=settings.wifi_ssid, key=settings.wifi_password)
+        result = self._post('/settings/sta', enabled='true', ssid=wifi.ssid,
+            key=wifi.password)
         print(f"   {result}")
 
         print("Configuration finished.")
@@ -174,7 +237,9 @@ class DeviceConn:
                 print(f"Connected to Shelly H&T 1, MAC {data['mac']}, firmware "
                     f"{data['fw']}")
 
-                return cls(conn)
+                dev_ident: str = data['mac'][6:]
+
+                return cls(conn, dev_ident)
 
             except TimeoutError:
                 # Should not happen since routing is disabled, but let’s allow
@@ -230,7 +295,8 @@ class ServerConn:
         """
 
         while True:
-            srv_url = input('URL: ')
+            srv_url = input_or_exit('URL: ')
+
             if not srv_url:
                 sys.exit(0)
 
@@ -267,8 +333,11 @@ class ServerConn:
 
             conn = HTTPConnection(ip_addr, port, timeout=10)
             try:
-                cls._send_req(conn, base_path + '/autoconf', username='',
-                password='')
+                cls._send_req(conn, base_path + '/autoconf', mode='auth',
+                    username='', password='')
+            except ConnectionError as err:
+                print(f"Connection error: {err}")
+                continue
             except cls.BadStatus as err:
                 status = err.status
             else:
@@ -281,55 +350,41 @@ class ServerConn:
                 continue
 
             server = hostname if port == 80 else f"{hostname}:{port}"
+
             return cls(conn, server, base_path)
 
-    def get_settings(self) -> DevSettings:
+    def authenticate(self) -> None:
         """
-        Queries the user and the PyShellyTemp server to determine the settings
-        to apply to the Shelly device, and returns them.
+        Authenticate on the server.
         """
 
         while True:
-            self._username = input("Username: ")
-            self._password = getpass.getpass("Password: ")
+            self._username = input_or_exit("Username: ")
+            self._password = input_or_exit("Password: ", pwd=True)
 
             try:
-                json_data = self._send_req(self._conn,
-                    self._base_path + '/autoconf', username=self._username,
+                self._send_req(self._conn, self._base_path + '/autoconf',
+                    mode='auth', username=self._username,
                     password=self._password)
             except self.BadStatus:
                 print("Authentification failed")
                 continue
 
-            dev_username: str = json_data['dev_username']
-            dev_password: str = json_data['dev_password']
-            break
+            return
 
-        report_url = urlunparse(('http', self._server,
-            self._base_path + '/report', '', '', ''))
-
-        print(f"Report URL: {report_url}")
-        print("")
-        print("Enter the WiFi settings that will be used by the Shelly H&T:")
-        wifi_ssid = ''
-        while not wifi_ssid:
-            wifi_ssid = input('SSID: ')
-        wifi_password = getpass.getpass('Password: ')
-
-        if bool(dev_username) != bool(dev_password):
-            sys.exit("Device username and password must both be set or unset.")
-
-        return DevSettings(report_url, dev_username, dev_password,
-            wifi_ssid, wifi_password)
-
-    def enable_discovery(self) -> None:
+    def register(self, dev_ident: str, dev_uname: str, dev_passwd: str) -> str:
         """
-        Enable discovery on the server.
+        Register a new device on the server. If a device with that ID already
+        exists, its username and password are updated.
+        Returns the URL that the device needs to send its reports to.
         """
 
-        self._send_req(self._conn, self._base_path + '/autoconf',
-            username=self._username, password=self._password, discovery='1')
+        self._send_req(self._conn, self._base_path + '/autoconf', mode='reg',
+            dev_ident=dev_ident, dev_uname=dev_uname, dev_passwd=dev_passwd,
+            username=self._username, password=self._password)
 
+        return urlunparse(('http', self._server, self._base_path + '/report',
+            '', '', ''))
 
     @classmethod
     def _send_req(cls, conn: HTTPConnection, path: str,
@@ -340,10 +395,28 @@ class ServerConn:
         Returns the response decoded as JSON.
         """
 
+        try:
+            return cls._send_req_noretry(conn, path, **kwargs)
+        except (RemoteDisconnected, BrokenPipeError, ConnectionResetError):
+            # Close the connection so it is re-established
+            conn.close()
+            return cls._send_req_noretry(conn, path, **kwargs)
+
+    @classmethod
+    def _send_req_noretry(cls, conn: HTTPConnection, path: str,
+        **kwargs: str) -> typing.Any:
+        """
+        Sends a POST request on the connection and reads the response.
+        Raises BadStatus if the response status is not 200.
+        Returns the response decoded as JSON.
+        Does not retry if a BrokenPipeError error is encountered
+        """
+
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
         }
         conn.request('POST', path, headers=headers, body=urlencode(kwargs))
+
         with conn.getresponse() as response:
             if response.status == 200:
                 return json.load(response)
@@ -358,6 +431,42 @@ class ServerConn:
         def __init__(self, status: int, data: bytes):
             self.status = status
             super().__init__(f"Bad status {status}: {data!r}")
+
+
+def prompt_yn(prompt: str, default: bool = True) -> bool:
+    """
+    Prompts the user for a yes/no question.
+    """
+
+    if default:
+        prompt = f"{prompt} [Y/n] "
+    else:
+        prompt = f"{prompt} [y/N] "
+
+    while True:
+        res = input_or_exit(prompt).lower()
+
+        if res == "":
+            return default
+
+        if res in {"y", "yes"}:
+            return True
+
+        if res in {"n", "no"}:
+            return False
+
+
+def input_or_exit(prompt: str, pwd: bool = False) -> str:
+    """
+    Prompt the user; exits the program if EOF or Ctrl-C is encountered.
+    """
+
+    try:
+        if pwd:
+            return getpass.getpass(prompt)
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        sys.exit("")
 
 
 if __name__ == '__main__':

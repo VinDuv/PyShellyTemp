@@ -5,73 +5,15 @@ Application models
 import datetime
 import enum
 import logging
-import math
 import typing
 
-from .db import DBObject, database, unique, reg_db_type
+from .db import DBObject, database, field, unique, reg_db_type
 
 
 LOGGER = logging.getLogger(__name__)
-DISCOVERY_DELAY = datetime.timedelta(minutes=10)
-
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
-database.set_db_version(2)
-
-
-class Settings(DBObject, table='settings'):
-    """
-    Settings singleton instance.
-    """
-
-    # Allow devices to connect until this time
-    discover_until: datetime.datetime
-
-    # Username and password used to query devices status
-    dev_username: str
-    dev_password: str
-
-    def set_discovery(self, *, enabled: bool) -> None:
-        """
-        Enable/extend or disable device connection
-        """
-
-        if enabled:
-            now = datetime.datetime.now(datetime.timezone.utc)
-            self.discover_until = now + DISCOVERY_DELAY
-        else:
-            past = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
-            self.discover_until = past
-
-        self.save()
-
-    @property
-    def discovery_remaining(self) -> int:
-        """
-        Returns the number of minutes remaining for discovery, or 0 if
-        discovery is disabled.
-        """
-
-        remaining = self.discover_until - datetime.datetime.now()
-        return max(0, math.ceil(remaining.total_seconds() / 60))
-
-    @classmethod
-    def get(cls) -> typing.Self:
-        """
-        Returns the current settings, creating them if needed.
-        """
-
-        try:
-            return cls.get_one()
-        except KeyError:
-            settings = cls.new_empty()
-            settings.id = 1
-            settings.discover_until = datetime.datetime(2000, 1, 1)
-            settings.dev_username = ''
-            settings.dev_password = ''
-            settings.save()
-
-            return settings
+database.set_db_version(3)
 
 
 class DevIdentify(DBObject, table='dev_identify'):
@@ -244,19 +186,20 @@ class Device(DBObject, table='devices'):
     name: str
 
     # Current device status
-    status: Status
+    status: Status = Status.NOT_RESPONDING
 
     # Last temperature received from the device (None if never received)
-    last_temp: typing.Optional[float]
+    last_temp: typing.Optional[float] = None
 
     # Last humidity received from the device (None if never received)
-    last_hum: typing.Optional[float]
+    last_hum: typing.Optional[float] = None
 
     # Last report time (set to current time at initial setup)
-    last_report: datetime.datetime
+    last_report: datetime.datetime = field(default_factory=datetime.datetime.\
+        now)
 
     # Battery percentage
-    bat_percent: float
+    bat_percent: float = 0.0
 
     @property
     def temp(self) -> str:
@@ -286,46 +229,56 @@ class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
     Device information specific to Shelly v1 H&T devices.
     """
 
+    # Device identifier for a device that is being registered.
+    REG_IDENT: typing.ClassVar[str] = '_registering_'
+
     # Associated device (type SHELLY_V1_H_T)
     device: Device = unique()
 
-    # Last data refresh time
-    last_refresh: datetime.datetime
+    # Credentials used to access the device status and change settings
+    username: str
+    password: str
+
+    # Last data refresh time (None before initial contact)
+    last_refresh: typing.Optional[datetime.datetime] = None
 
     # IP address of the device
-    ip_addr: str
+    ip_addr: str = ''
 
     # Battery voltage
-    bat_volt: float
+    bat_volt: float = 0.0
 
     # Update status
-    update_status: str
+    update_status: str = 'unknown'
 
     # Wifi RSSI
-    wifi_rssi: int
+    wifi_rssi: int = 0
 
     # Memory total and free
-    mem_total: int
-    mem_free: int
+    mem_total: int = 1
+    mem_free: int = 0
 
     # Filesystem size and free
-    fs_size: int
-    fs_free: int
+    fs_size: int = 1
+    fs_free: int = 0
 
     # Update thresholds
-    temp_thresh: float
-    hum_thresh: float
+    temp_thresh: float = 0.0
+    hum_thresh: float = 0.0
 
     # Sensor calibration offsets
-    temp_off: float
-    hum_off: float
+    temp_off: float = 0.0
+    hum_off: float = 0.0
 
     # Indicate if the device settings changed and need to be applied
-    need_config_set: bool
+    need_config_set: bool = False
 
     @property
     def last_refresh_disp(self) -> str:
         "Human-readable last refresh date"
+        if self.last_refresh is None:
+            return "Not registered yet"
+
         return self.last_refresh.strftime('%d/%m/%Y %H:%M:%S')
 
     @property

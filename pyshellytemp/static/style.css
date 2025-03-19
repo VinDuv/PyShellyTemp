@@ -56,6 +56,11 @@ fieldset {
 	padding: 0 .5em;
 }
 
+fieldset legend {
+	font-weight: bold;
+	padding: 0 .25em .25em .25em;
+}
+
 form label, form input {
 	margin: .5em 0;
 }
@@ -63,6 +68,10 @@ form label, form input {
 form label {
 	display: inline-block;
 	min-width: 6em;
+}
+
+form.space10em label {
+	min-width: 10em;
 }
 
 form input[type=submit], form input[type=button], button, a.button_like, a.button_like:visited {
@@ -141,6 +150,7 @@ hr {
 
 .help_text {
 	font-size: .75em;
+	font-weight: normal !important;
 	margin: .25em 0 .5em 0;
 }
 
@@ -160,4 +170,8 @@ canvas {
 
 aside.buttonbar {
 	display: block;
+}
+
+p {
+	margin: .5em 0;
 }

@@ -13,7 +13,7 @@ import re
 import threading
 import typing
 
-from .models import Settings, Device, ShellyV1HTInfo, Report, DevIdentify
+from .models import Device, ShellyV1HTInfo, Report, DevIdentify
 from .report_processor import ReportProcessor
 from .session import no_session, login_required, SessionData, User
 from .util import render, join_lines, float_or_default
@@ -50,28 +50,9 @@ def settings_view(request: HTTPRequest) -> HTTPResponse:
     Settings view
     """
 
-    settings = Settings.get()
     cur_user = User.from_request(request)
 
-    if request.post is not None:
-        data = request.post.get_form_data()
-        if 'enable_disco' in data:
-            settings.set_discovery(enabled=True)
-
-        if 'disable_disco' in data:
-            settings.set_discovery(enabled=False)
-
-        if 'set_values' in data:
-            settings.dev_username = data.get('device_uname', '')
-            settings.dev_password = data.get('device_pass', '')
-            settings.save()
-
-        return redirect_to_view(request, settings_view)
-
     ctx = {
-        'device_uname': settings.dev_username,
-        'device_pass': settings.dev_password,
-        'disco_remaining': settings.discovery_remaining,
         'device_info': (
             (
                 device,
@@ -100,13 +81,23 @@ class ShellyV1HTFormData:
     Handle a Shelly v1 H&T configuration settings.
     """
 
+    @dataclasses.dataclass
+    class _Credentials:
+        dev_uname: str
+        dev_pass: str
+
+    @dataclasses.dataclass
+    class _Config:
+        temp_thresh: str
+        hum_thresh: str
+        temp_off: str
+        hum_off: str
+
     device: Device
     info: ShellyV1HTInfo
     name: str
-    temp_thresh: str
-    hum_thresh: str
-    temp_off: str
-    hum_off: str
+    creds: _Credentials
+    cfg: _Config
 
     def validate(self, data: dict[str, str]) -> tuple[list[str], bool]:
         """
@@ -124,38 +115,40 @@ class ShellyV1HTFormData:
 
         # Update form values
         self.name = data.get('dev_name', '').strip()
-        self.temp_thresh = data.get('temp_thresh', '').strip()
-        self.hum_thresh = data.get('hum_thresh', '').strip()
-        self.temp_off = data.get('temp_off', '').strip()
-        self.hum_off = data.get('hum_off', '').strip()
+        self.creds.dev_uname = data.get('dev_uname', '')
+        self.creds.dev_pass = data.get('dev_pass', '')
+        self.cfg.temp_thresh = data.get('temp_thresh', '').strip()
+        self.cfg.hum_thresh = data.get('hum_thresh', '').strip()
+        self.cfg.temp_off = data.get('temp_off', '').strip()
+        self.cfg.hum_off = data.get('hum_off', '').strip()
 
         # Determine “cleaned” values
         name = self.name
         if not name:
             errors.append("Device name cannot be empty.")
 
-        temp_thresh = float_or_default(self.temp_thresh, default=-1)
+        temp_thresh = float_or_default(self.cfg.temp_thresh, default=-1)
         if not 0 <= temp_thresh <= 20:
             errors.append("Temperature threshold should be between 0 and "
                 "15 °C.")
         elif temp_thresh != info.temp_thresh:
             need_config_set = True
 
-        hum_thresh = float_or_default(self.hum_thresh, default=-1)
+        hum_thresh = float_or_default(self.cfg.hum_thresh, default=-1)
         if not 0 <= hum_thresh <= 100:
             errors.append("Humidity threshold should be between 0 and "
                 "100.")
         elif hum_thresh != info.hum_thresh:
             need_config_set = True
 
-        temp_off = float_or_default(self.temp_off, default=-200)
+        temp_off = float_or_default(self.cfg.temp_off, default=-200)
         if not -50 <= temp_off <= 50:
             errors.append("Temperature offset should be between -50 and "
                 "+50 °C.")
         elif temp_off != info.temp_off:
             need_config_set = True
 
-        hum_off = float_or_default(self.hum_off, default=-1)
+        hum_off = float_or_default(self.cfg.hum_off, default=-1)
         if not -50 <= hum_off <= 50:
             errors.append("Humidity offset should be between -50 and "
                 "50.")
@@ -164,6 +157,8 @@ class ShellyV1HTFormData:
 
         if not errors:
             device.name = name
+            info.username = self.creds.dev_uname
+            info.password = self.creds.dev_pass
             info.temp_thresh = temp_thresh
             info.hum_thresh = hum_thresh
             info.temp_off = temp_off
@@ -180,8 +175,11 @@ class ShellyV1HTFormData:
         Initialize an instance from device info.
         """
 
-        return cls(device, info, device.name, str(info.temp_thresh),
-            str(info.hum_thresh), str(info.temp_off), str(info.hum_off))
+        creds = cls._Credentials(info.username, info.password)
+        cfg = cls._Config(str(info.temp_thresh), str(info.hum_thresh),
+            str(info.temp_off), str(info.hum_off))
+
+        return cls(device, info, device.name, creds, cfg)
 
 
 @login_required
@@ -198,6 +196,89 @@ def device_edit(request: HTTPRequest, device_id: str) -> HTTPResponse:
     return _device_edit_shelly_v1_h_t(request, device)
 
 
+@login_required
+@route('/settings/device/new')
+def device_new(request: HTTPRequest) -> HTTPResponse:
+    """
+    New device view
+    """
+
+    message = ''
+    dev_ident = ''
+    dev_uname = ''
+    dev_pass = ''
+
+    if request.post is not None:
+        data = request.post.get_form_data()
+        dev_ident = data.get('dev_ident', '')
+        dev_uname = data.get('dev_uname', '')
+        dev_pass = data.get('dev_pass', '')
+
+        if not re.match(r'^(?:[0-9A-Fa-f]{6}|)$', dev_ident):
+            message = "Invalid device ID."
+
+        if not message:
+            if dev_ident:
+                dev_name = dev_ident
+            else:
+                dev_ident = ShellyV1HTInfo.REG_IDENT
+                dev_name = "Wait for registration"
+                Device.get_all(ident=dev_ident).delete()
+
+            try:
+                dev = Device(ident=dev_ident, type=Device.Type.SHELLY_V1_H_T,
+                    name=dev_name)
+            except Device.AlreadyExists:
+                message = "A device with this identifier already exists."
+
+        if not message:
+            ShellyV1HTInfo(device=dev, username=dev_uname, password=dev_pass)
+
+            return redirect_to_view(request, device_wait, dev_id=dev.id)
+
+    ctx = {
+        'message': message,
+        'dev_ident': dev_ident,
+        'dev_uname': dev_uname,
+        'dev_pass': dev_pass,
+    }
+
+    return render(request, 'app/device_new.html', ctx)
+
+
+@login_required
+@route('/settings/device/wait/{dev_id:d}')
+def device_wait(request: HTTPRequest, dev_id: int) -> HTTPResponse:
+    """
+    Wait for a newly added Shelly v1 H&T to contact the server for the first
+    time.
+    The new device is identified by numerical identifier instead of string
+    identifier because the string identifier may change during the registration.
+    """
+
+    device = Device.get_opt(id=dev_id)
+    if device is None:
+        return HTTPTextResponse.msg_page(HTTPStatus.NOT_FOUND)
+
+    if device.type != Device.Type.SHELLY_V1_H_T:
+        return redirect_to_view(request, device_edit, device_id=device.ident)
+
+    info = ShellyV1HTInfo.get_one(device=device)
+    if info.last_refresh is not None:
+        return redirect_to_view(request, device_edit, device_id=device.ident)
+
+    if request.post is not None:
+        if 'cancel' in request.post.get_form_data():
+            device.delete()
+            return redirect_to_view(request, settings_view)
+
+    headers = {
+        'Refresh': '5',
+    }
+
+    return render(request, 'app/device_new_wait.html', headers=headers)
+
+
 def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
     HTTPResponse:
     """
@@ -212,6 +293,9 @@ def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
 
     info = ShellyV1HTInfo.get_one(device=device)
     form = ShellyV1HTFormData.from_info(device, info)
+
+    if info.last_refresh is None:
+        return redirect_to_view(request, device_wait, dev_id=device.id)
 
     if request.post is not None:
         messages, need_config_set = form.validate(request.post.get_form_data())
@@ -629,9 +713,10 @@ def data_view(request: HTTPRequest) -> HTTPResponse:
 
     return HTTPTextResponse(str_results, content_type='application/json')
 
+
 @no_session
 @route('/autoconf')
-def autoconf(request: HTTPRequest) -> HTTPResponse:
+def shelly_v1_autoconf(request: HTTPRequest) -> HTTPResponse:
     """
     Used by the shelly_config script to perform autoconfiguration.
     """
@@ -649,17 +734,41 @@ def autoconf(request: HTTPRequest) -> HTTPResponse:
     if User.try_login_user(username, password) is None:
         return HTTPTextResponse.msg_page(HTTPStatus.FORBIDDEN)
 
-    settings = Settings.get()
+    mode = data.get('mode', '')
 
-    if 'discovery' in data:
-        settings.set_discovery(enabled=True)
+    if mode == 'auth':
+        result: dict[str, str] = {}
 
-    json_data = json.dumps({
-        'dev_username': settings.dev_username,
-        'dev_password': settings.dev_password,
-    })
+    elif mode == 'reg':
+        try:
+            dev_ident = data['dev_ident']
+            dev_uname = data['dev_uname']
+            dev_passwd = data['dev_passwd']
+        except KeyError:
+            dev_ident = ''
 
-    return HTTPTextResponse(json_data + "\n", content_type='application/json')
+        if len(dev_ident) != 6:
+            return HTTPTextResponse.msg_page(HTTPStatus.BAD_REQUEST)
+
+        try:
+            dev = Device(ident=dev_ident, type=Device.Type.SHELLY_V1_H_T,
+                name=dev_ident)
+        except Device.AlreadyExists:
+            dev = Device.get_one(ident=dev_ident)
+            info = ShellyV1HTInfo.get_one(device=dev)
+            info.username = dev_uname
+            info.password = dev_passwd
+            info.save()
+        else:
+            ShellyV1HTInfo(device=dev, username=dev_uname, password=dev_passwd)
+
+        result = {}
+
+    else:
+        return HTTPTextResponse.msg_page(HTTPStatus.BAD_REQUEST)
+
+    response = json.dumps(result) + '\n'
+    return HTTPTextResponse(response, content_type='application/json')
 
 
 @no_session
