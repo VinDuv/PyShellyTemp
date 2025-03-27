@@ -19,3 +19,6 @@ directory = "coverage"
 [tool.pylint.MAIN]
 persistent = "no"
 score = "no"
+
+[tool.mypy]
+strict = "yes"
