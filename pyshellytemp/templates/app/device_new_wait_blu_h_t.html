@@ -1,0 +1,13 @@
+{% extend "main.html" %}
+{% block 'title' %}PyShellyTemp — Device registration{% endblock %}
+{% block 'contents' %}
+<section>
+<h2>Device registration</h2>
+Waiting for the new device to contact the server for the first time.<br />
+You can press the device button to make it send a message immediately.<br />
+If this page persists, check that the Bluetooth service (shellyblu.py) is running.
+<form method="post">
+<input type="submit" name="cancel" value="Cancel registration" />
+</form>
+</section>
+{% endblock %}

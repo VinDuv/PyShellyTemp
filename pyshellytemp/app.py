@@ -13,7 +13,7 @@ import re
 import threading
 import typing
 
-from .models import Device, ShellyV1HTInfo, Report, DevIdentify
+from .models import Device, ShellyV1HTInfo, ShellyBLUHTInfo, Report, DevIdentify
 from .report_processor import ReportProcessor
 from .session import no_session, login_required, SessionData, User
 from .util import render, join_lines, float_or_default
@@ -193,7 +193,14 @@ def device_edit(request: HTTPRequest, device_id: str) -> HTTPResponse:
     if device is None:
         return HTTPTextResponse.msg_page(HTTPStatus.NOT_FOUND)
 
-    return _device_edit_shelly_v1_h_t(request, device)
+    if device.type is Device.Type.SHELLY_V1_H_T:
+        return _device_edit_shelly_v1_h_t(request, device)
+
+    if device.type is Device.Type.SHELLY_BLU_H_T:
+        return _device_edit_shelly_blu_h_t(request, device)
+
+    typing.assert_never(device.type)
+
 
 
 @login_required
@@ -203,44 +210,88 @@ def device_new(request: HTTPRequest) -> HTTPResponse:
     New device view
     """
 
-    message = ''
-    dev_ident = ''
-    dev_uname = ''
-    dev_pass = ''
-
     if request.post is not None:
         data = request.post.get_form_data()
-        dev_ident = data.get('dev_ident', '')
-        dev_uname = data.get('dev_uname', '')
-        dev_pass = data.get('dev_pass', '')
+        if 'add_v1ht' in data:
+            return _device_new_v1ht(request, data)
 
-        if not re.match(r'^(?:[0-9A-Fa-f]{6}|)$', dev_ident):
-            message = "Invalid device ID."
+        if 'add_bluht' in data:
+            return _device_new_bluht(request, data)
 
-        if not message:
-            if dev_ident:
-                dev_name = dev_ident
-            else:
-                dev_ident = ShellyV1HTInfo.REG_IDENT
-                dev_name = "Wait for registration"
-                Device.get_all(ident=dev_ident).delete()
+    return render(request, 'app/device_new.html')
 
-            try:
-                dev = Device(ident=dev_ident, type=Device.Type.SHELLY_V1_H_T,
-                    name=dev_name)
-            except Device.AlreadyExists:
-                message = "A device with this identifier already exists."
 
-        if not message:
-            ShellyV1HTInfo(device=dev, username=dev_uname, password=dev_pass)
+def _device_new_v1ht(request: HTTPRequest, data: dict[str, typing.Any]) -> \
+    HTTPResponse:
+    """
+    New Shelly V1 H&T device view
+    """
 
-            return redirect_to_view(request, device_wait, dev_id=dev.id)
+    message = ''
+
+    dev_ident = data.get('dev_ident', '')
+    dev_uname = data.get('dev_uname', '')
+    dev_pass = data.get('dev_pass', '')
+
+    if not re.match(r'^(?:[0-9A-Fa-f]{6}|)$', dev_ident):
+        message = "Invalid device ID."
+
+    if not message:
+        if dev_ident:
+            dev_name = dev_ident
+        else:
+            dev_ident = ShellyV1HTInfo.REG_IDENT
+            dev_name = "Wait for registration"
+            Device.get_all(ident=dev_ident).delete()
+
+        try:
+            dev = Device(ident=dev_ident, type=Device.Type.SHELLY_V1_H_T,
+                name=dev_name)
+        except Device.AlreadyExists:
+            message = "A device with this identifier already exists."
+
+    if not message:
+        ShellyV1HTInfo(device=dev, username=dev_uname, password=dev_pass)
+
+        return redirect_to_view(request, device_wait, dev_id=dev.id)
 
     ctx = {
         'message': message,
         'dev_ident': dev_ident,
         'dev_uname': dev_uname,
         'dev_pass': dev_pass,
+    }
+
+    return render(request, 'app/device_new.html', ctx)
+
+
+def _device_new_bluht(request: HTTPRequest, data: dict[str, typing.Any]) -> \
+    HTTPResponse:
+    """
+    New Shelly BLU H&T device view
+    """
+
+    message = ''
+
+    enc_key = data.get('enc_key', '')
+
+    formatted_key = ShellyBLUHTInfo.validate_enc_key(enc_key)
+    if formatted_key is None:
+        message = ("Invalid encryption key (must be a hex string of 32 "
+            "characters)")
+    else:
+        dev_ident = ShellyBLUHTInfo.REG_IDENT
+        dev_name = "Wait for registration"
+        Device.get_all(ident=dev_ident).delete()
+        dev = Device(ident=dev_ident, type=Device.Type.SHELLY_BLU_H_T,
+            name=dev_name)
+        ShellyBLUHTInfo(device=dev, enc_key=formatted_key)
+
+        return redirect_to_view(request, device_wait, dev_id=dev.id)
+
+    ctx = {
+        'message': message,
+        'enc_key': enc_key,
     }
 
     return render(request, 'app/device_new.html', ctx)
@@ -260,11 +311,17 @@ def device_wait(request: HTTPRequest, dev_id: int) -> HTTPResponse:
     if device is None:
         return HTTPTextResponse.msg_page(HTTPStatus.NOT_FOUND)
 
-    if device.type != Device.Type.SHELLY_V1_H_T:
-        return redirect_to_view(request, device_edit, device_id=device.ident)
+    if device.type is Device.Type.SHELLY_V1_H_T:
+        info = ShellyV1HTInfo.get_one(device=device)
+        done = info.last_refresh is not None
+        tpl_file = 'app/device_new_wait_v1_h_t.html'
+    elif device.type is Device.Type.SHELLY_BLU_H_T:
+        done = device.status is not Device.Status.NOT_RESPONDING
+        tpl_file = 'app/device_new_wait_blu_h_t.html'
+    else:
+        typing.assert_never(device.type)
 
-    info = ShellyV1HTInfo.get_one(device=device)
-    if info.last_refresh is not None:
+    if done:
         return redirect_to_view(request, device_edit, device_id=device.ident)
 
     if request.post is not None:
@@ -276,7 +333,7 @@ def device_wait(request: HTTPRequest, dev_id: int) -> HTTPResponse:
         'Refresh': '5',
     }
 
-    return render(request, 'app/device_new_wait.html', headers=headers)
+    return render(request, tpl_file, headers=headers)
 
 
 def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
@@ -316,10 +373,61 @@ def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
         'device': device,
         'info': info,
         'form': form,
+        'dev_name': form.name,
         'message': join_lines(messages),
     }
 
     return render(request, 'app/device_shelly_v1_h_t.html', ctx)
+
+
+def _device_edit_shelly_blu_h_t(request: HTTPRequest, device: Device) -> \
+    HTTPResponse:
+    """
+    Settings view for Shelly BLU H&T devices
+    """
+
+    session_data = request.get_ext(SessionData)
+
+    messages: list[str] = []
+    if session_data.message:
+        messages.append(session_data.message)
+
+    info = ShellyBLUHTInfo.get_one(device=device)
+    enc_key = info.enc_key
+    dev_name = device.name
+
+    if device.status is Device.Status.NOT_RESPONDING:
+        return redirect_to_view(request, device_wait, dev_id=device.id)
+
+    if request.post is not None:
+        data = request.post.get_form_data()
+        enc_key = data.get('enc_key', enc_key)
+        dev_name = data.get('dev_name', dev_name)
+
+        formatted_key = ShellyBLUHTInfo.validate_enc_key(enc_key)
+        if formatted_key is None:
+            messages.append("Invalid encryption key (must be a hex string of 32 "
+                "characters)")
+
+        else:
+            device.name = dev_name
+            info.enc_key = enc_key
+            device.save()
+            info.save()
+
+            session_data.set_next_message("Settings updated.")
+            return redirect_to_view(request, device_edit,
+                device_id=device.ident)
+
+    ctx = {
+        'device': device,
+        'info': info,
+        'enc_key': enc_key,
+        'dev_name': dev_name,
+        'message': join_lines(messages),
+    }
+
+    return render(request, 'app/device_shelly_blu_h_t.html', ctx)
 
 
 @login_required

@@ -1,0 +1,14 @@
+{% extend "app/device.html" %}
+{% block 'dev_info_table' %}
+<tr><td>Status</td><td>{{ device.status }}</td></tr>
+<tr><td>MAC address</td><td>{{ info.mac_addr }}</td></tr>
+<tr><td>Firmware version</td><td>{{ info.fw_ver }}</td></tr>
+<tr><td>Signal strength</td><td>{{ info.rssi_disp }}</td></tr>
+<tr></tr>
+<tr><th colspan="2">Encryption</th><tr>
+<tr><td>Encryption key</td><td><input type="text" id="enc_key" name="enc_key" value="{{ enc_key }}" size="40" /></td></tr>
+<tr><td colspan="2" class="help_text">
+This value must match the encryption key set on the device, if any.<br />
+The Shelly BLE app can be used to set and retrieve the encryption key.
+</td></tr>
+{% endblock %}

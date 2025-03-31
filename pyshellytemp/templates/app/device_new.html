@@ -41,5 +41,19 @@ This can be left blank if no authentication is needed.
 <input type="submit" name="add_v1ht" value="Add Shelly v1 H&T" />
 </form>
 </fieldset>
+<fieldset>
+<legend>Shelly BLU H&T</legend>
+<p>
+To register a Shelly BLU H&T device, click the Add button below and press the
+button of the device you want to register.
+If the device is encrypted, enter its encryption key below (as a 32 characters
+hex string). This can be done later.
+<form method="post" autocomplete="off" class="space10em">
+{% if message %}<div class="message">{{ message }}</div>{% endif %}
+<label for="enc_key">Encryption key:</label>
+<input type="text" name="enc_key" id="enc_key" spellcheck="false" size="40" value="{{enc_key}}" /><br />
+<input type="submit" name="add_bluht" value="Add Shelly BLU H&T" />
+</form>
+</fieldset>
 </section>
 {% endblock %}

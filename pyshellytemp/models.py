@@ -13,7 +13,7 @@ from .db import DBObject, database, field, unique, reg_db_type
 LOGGER = logging.getLogger(__name__)
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
-database.set_db_version(3)
+database.set_db_version(4)
 
 
 class DevIdentify(DBObject, table='dev_identify'):
@@ -159,6 +159,7 @@ class Device(DBObject, table='devices'):
         """
 
         SHELLY_V1_H_T = 'shv1ht'
+        SHELLY_BLU_H_T = 'bluht'
 
         @staticmethod
         def py_to_db(py_val: 'Device.Type') -> str:
@@ -171,12 +172,15 @@ class Device(DBObject, table='devices'):
             return cls(db_val)
 
         def __str__(self) -> str:
-            if self is self.__class__.SHELLY_V1_H_T:
+            if self is Device.Type.SHELLY_V1_H_T:
                 return "Shelly v1 H&T"
+
+            if self is Device.Type.SHELLY_BLU_H_T:
+                return "Shelly BLU H&T"
 
             typing.assert_never(self)
 
-    # Device identifier (six hexadecimal digits, part of the MAC address)
+    # Device identifier (expected to be unique across device types)
     ident: str = unique()
 
     # Device type
@@ -223,6 +227,26 @@ class Device(DBObject, table='devices'):
         cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
         return Report.get_all(device=self, tstamp__gte=cutoff).count()
 
+    @staticmethod
+    def rssi_to_str(rssi: int) -> str:
+        "Converts a RSSI number to a human-readable value"
+
+        if rssi >= 0:
+            return "Unknown"
+
+        if rssi >= -30:
+            strength = "Excellent"
+        elif rssi >= -67:
+            strength = "Very good"
+        elif rssi >= -70:
+            strength = "Good"
+        elif rssi >= -80:
+            strength = "Bad"
+        else:
+            strength = "Very bad"
+
+        return f"{strength} (RSSI {rssi})"
+
 
 class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
     """
@@ -230,7 +254,7 @@ class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
     """
 
     # Device identifier for a device that is being registered.
-    REG_IDENT: typing.ClassVar[str] = '_registering_'
+    REG_IDENT: typing.ClassVar[str] = '_registering_v1_'
 
     # Associated device (type SHELLY_V1_H_T)
     device: Device = unique()
@@ -284,19 +308,7 @@ class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
     @property
     def wifi_rssi_disp(self) -> str:
         "Human-readable Wi-Fi strength"
-        rssi = self.wifi_rssi
-        if rssi >= -30:
-            strength = "Excellent"
-        elif rssi >= -67:
-            strength = "Very good"
-        elif rssi >= -70:
-            strength = "Good"
-        elif rssi >= -80:
-            strength = "Bad"
-        else:
-            strength = "Very bad"
-
-        return f"{strength} (RSSI {rssi})"
+        return Device.rssi_to_str(self.wifi_rssi)
 
     @property
     def mem_usage(self) -> str:
@@ -323,6 +335,55 @@ class ShellyV1HTInfo(DBObject, table='shelly_v1_ht_info'):
         percent = 100 * used / total
 
         return f"{percent:.2f} % ({used / 1024:.1f} / {total / 1024:.1f} KiB)"
+
+
+class ShellyBLUHTInfo(DBObject, table='shelly_blu_ht_info'):
+    """
+    Device information specific to Shelly BLU H&T devices.
+    """
+
+    # Device identifier for a device that is being registered.
+    REG_IDENT: typing.ClassVar[str] = '_registering_blu_'
+
+    # Associated device (type SHELLY_BLU_H_T)
+    device: Device = unique()
+
+    # MAC address
+    mac_addr: str = 'unknown'
+
+    # Firmware version
+    fw_ver: str = 'unknown'
+
+    # Reception RSSI
+    rssi: int = 0
+
+    # Encryption key (16 bytes, hex string, empty if disabled)
+    enc_key: str = ''
+
+    @property
+    def rssi_disp(self) -> str:
+        "Human-readable reception signal strength"
+        return Device.rssi_to_str(self.rssi)
+
+    @staticmethod
+    def validate_enc_key(enc_key: str) -> str | None:
+        """
+        Verifies that the specified encryption key is valid.
+        Returns the normalized encryption key if valid, None if not.
+        """
+
+        if not enc_key:
+            return ""  # Empty key OK
+
+        try:
+            enc_key_bytes = bytes.fromhex(enc_key)
+        except ValueError:
+            return None
+
+        if len(enc_key_bytes) != 16:
+            return None
+
+        return enc_key_bytes.hex()
 
 
 class Report(DBObject, table='reports'):
