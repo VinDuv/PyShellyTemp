@@ -2,7 +2,7 @@ PyShellyTemp
 ============
 
 This is a Python Web app that records temperature and humidity values from
-Shelly H&T devices, without using the Shelly cloud.
+Shelly v1 H&T and Shelly BLU H&T devices, without using the Shelly cloud.
 
 This application is designed to be installed on a computer (probably a NAS or
 a single-board computer) which is on the same network as the Shelly devices. It
@@ -121,6 +121,25 @@ ExecStart=/usr/bin/uwsgi \
 	--pythonpath=/srv --mount=/some/path=pyshellytemp.app:application --manage-script-name
 ```
 
+### Shelly BLU H&T
+
+To use Shelly BLU H&T devices, the server running PyShellyTemp must have a
+compatible Bluetooth receiver; the `python3-bleak` and `python3-cryptography`
+modules must be installed. You then need to run the `pyshellytemp/shellyblu.py`
+service in the background, using the same user as the one running PyShellyTemp.
+
+Here is an example service file:
+```
+[Unit]
+Description=Shelly BLU manager
+
+[Service]
+Type=notify
+ExecStart=/srv/pyshellytemp/shellyblu.py
+User=pyshellytemp
+Group=pyshellytemp
+```
+
 Environment variables
 ---------------------
 
@@ -137,7 +156,7 @@ variable.
 Usage
 -----
 
-***Note:*** Since the communication between PyShellyTemp and the Shelly H&T
+***Note:*** Since the communication between PyShellyTemp and the Shelly v1 H&T
 devices is unsecured, the website only communicates with devices that are on the
 local network. This is verified by checking wether the device’s IP address is a
 private IPv4 address (as determined by
@@ -150,23 +169,27 @@ from the link in the top right corner, which allows access to the settings page.
 The main settings page is in three parts:
 - Communication: there is a bi-directional communication between the Shelly H&T
   devices and PyShellyTemp.
-  - Shelly devices send a temperature and humidity report to the `/report`
-    endpoint of PyShellyTemp. To prevent a rogue device from sending reports,
-    the device must previously be registered. This is done by enabling device
-    discovery. When enabled, during 10 minutes, any Shelly device that sends a
-    report will be automatically registered.
-  - PyShellyTemp regularly queries devices to fetch their status (battery level,
-    sensor state, …). This is done using an API that can be password protected
-    on the Shelly device; if this is the case, all devices must use the same
-    credentials, and it must be set in PyShellyTemp settings.
+  - Shelly v1 H&T devices send a temperature and humidity report to the
+    `/report` endpoint of PyShellyTemp. To prevent a rogue device from sending
+    reports, the device must previously be registered. This is done by adding
+    a device on the Web interface; one that is done, the next device to contact
+    the server will be registered.
+  - PyShellyTemp regularly queries v1 devices to fetch their status (battery
+    level, sensor state, …). This is done using an API that can be password
+    protected on the Shelly device; if this is the case, the credentials must be
+    set in PyShellyTemp settings. Shelly BLU H&T devices send all of their
+    info directly, but the info may be encrypted; in that case, the encryption
+    key must be specified in the settings as well.
 - Devices: shows all registered devices, with their custom name and status. It
-  allows editing or deleting a device.
+  allows adding, editing or deleting a device.
   - The device settings pages shows the detailed status of the device, and
-    allows setting a custom device name that will be shown in PyShellyTemp. It
-    also allows setting the report threshold (i.e. the variation of temperature
-    and pressure that triggers a report) and the sensor calibration (allows
-    setting a corrective offset on the reported values so they better match
-    reality).
+    allows setting a custom device name that will be shown in PyShellyTemp. For
+    Shelly v1 H&T devices, it also allows setting the report threshold (i.e.
+    the variation of temperature and pressure that triggers a report) and the
+    sensor calibration (allows setting a corrective offset on the reported
+    values so they better match reality). For Shelly BLU H&T devices, you can
+    specify the encryption key that is used to secure the data sent by the
+    device.
   - The device information is refreshed every 12 hours; it is done when the
     device is woken up (after a report was send or the device button was
     pressed).
@@ -178,11 +201,11 @@ The main settings page is in three parts:
   can create/delete users, change their usernames and passwords (including your
   own).
 
-To register Shelly H&T devices to PyShellyTemp, you can either do it manually
+To register Shelly v1 H&T devices to PyShellyTemp, you can either do it manually
 (connect the device to your local network and configure it to send reports to
-the `<PyShellyTemp URL>/report` URL, while device discovery is active), or you
-can use the `shelly_config.py` Python script. You need to run it on a computer
-that:
+the `<PyShellyTemp URL>/report` URL, after adding a new device on the Web
+interface), or you can use the `shelly_config.py` Python script. You need to run
+it on a computer that:
  - is connected (at least initially) to the local network that the Shelly
    devices will use,
  - has WiFi support so you can connect it to a factory-reset Shelly device.
