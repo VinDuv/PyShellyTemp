@@ -4,10 +4,13 @@ Module entry point; contain admin tools
 
 import argparse
 import getpass
+import sys
+import time
 
 from . import models
 from .db import database
 from .db.upgrade import DatabaseUpgrader
+from .models import Device, Report
 from .session import User
 
 
@@ -43,6 +46,15 @@ def run() -> None:
 
     upgrade_db = sub.add_parser('upgrade-db', help="Upgrade the database")
     upgrade_db.set_defaults(func=_upgrade_db)
+
+    copy_data = sub.add_parser('copy-data', help="Copy history data from "
+        "device to device. Only the previous device data prior to the new "
+        "device data will be copied.")
+    copy_data.add_argument('from_name', help="Device to copy data from",
+        metavar='from')
+    copy_data.add_argument('to_name', help="Device to copy data to",
+        metavar='to')
+    copy_data.set_defaults(func=_copy_data)
 
     args = parser.parse_args()
 
@@ -92,6 +104,72 @@ def _upgrade_db(_args: argparse.Namespace | None = None) -> None:
 
     upgrader = DatabaseUpgrader(models)
     upgrader.do_upgrade()
+
+
+def _copy_data(args: argparse.Namespace) -> None:
+    """
+    Copy data from a device to another.
+    """
+
+    from_name: str = args.from_name
+    to_name: str = args.to_name
+
+    from_dev = _get_dev(from_name)
+    to_dev = _get_dev(to_name)
+
+    to_start = list(Report.get_all(device=to_dev).order_by('tstamp')[0:1])
+    cutoff_date = to_start[0].tstamp if to_start else None
+
+    if cutoff_date is None:
+        count = Report.get_all(device=from_dev).count()
+        print(f"Will copy all data from {from_name!r} to {to_name!r} "
+            f"({count} records)")
+        cutoff_tstamp = time.time()
+    else:
+        count = Report.get_all(device=from_dev, tstamp__lt=cutoff_date).count()
+        date_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Will copy all data before {date_str} from {from_name!r} to"
+            f" {to_name!r} ({count} records)")
+        cutoff_tstamp = cutoff_date.timestamp()
+
+    if not count:
+        sys.exit("Nothing to copy!")
+
+    query = '''
+        insert into reports (device_id, tstamp, temp, hum)
+            select ?, tstamp, temp, hum
+                from reports
+                where device_id = ?
+                    and tstamp < ?
+        ;
+    '''
+
+    while True:
+        res = input("Execute? [y/N] ").lower()
+        if res in {'y', 'yes'}:
+            break
+
+        if res in {'n', 'no', ''}:
+            return
+
+    database.exec_raw(query, (to_dev.id, from_dev.id, cutoff_tstamp))
+
+
+def _get_dev(name: str) -> Device:
+    """
+    Gets a device from a name or identifier.
+    """
+
+    try:
+        return Device.get_one(ident=name)
+    except KeyError:
+        try:
+            return Device.get_one(name=name)
+        except KeyError:
+            sys.exit(f"Unknown device name or identifier {name!r}.")
+        except ValueError:
+            sys.exit(f"Multiple devices have the name {name!r}. Specify their "
+                "identifier instead.")
 
 
 if __name__ == '__main__':
