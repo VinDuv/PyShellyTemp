@@ -13,7 +13,7 @@ from .db import DBObject, database, field, unique, reg_db_type
 LOGGER = logging.getLogger(__name__)
 
 database.set_default_db_path('/var/lib/pyshellytemp/db.sqlite3')
-database.set_db_version(4)
+database.set_db_version(5)
 
 
 class DevIdentify(DBObject, table='dev_identify'):
@@ -188,6 +188,12 @@ class Device(DBObject, table='devices'):
 
     # Device name
     name: str
+
+    # Color of the temperature graph line (RGB hex value)
+    temp_color: str = '#CC0000'
+
+    # Color of the humidity graph line (RGB hex value)
+    hum_color: str = '#0100CC'
 
     # Current device status
     status: Status = Status.NOT_RESPONDING

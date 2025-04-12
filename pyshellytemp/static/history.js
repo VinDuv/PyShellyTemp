@@ -3,14 +3,6 @@
 (function () {
 "use strict";
 
-const COLORS = [
-	["#CC0000", "#0100CC"],
-	["#CC6700", "#6600CC"],
-	["#CC0067", "#0067CC"],
-	["#CC3200", "#3300CC"],
-	["#CC0033", "#0010CC"],
-];
-
 class HistoryManager {
 	constructor() {
 		this._graph = null;
@@ -81,12 +73,12 @@ class HistoryManager {
 		tempSeries.length = 0;
 		humSeries.length = 0;
 
-		let idx = 0;
 		let maxTemp = null;
 		let minTemp = null;
 		data.forEach((tempHumData) => {
 			const name = tempHumData.name;
-			const [tempColor, humColor] = COLORS[idx];
+			const tempColor = tempHumData.tempColor;
+			const humColor = tempHumData.humColor;
 			const tempValues = [];
 			const humValues = [];
 
@@ -122,11 +114,6 @@ class HistoryManager {
 
 			tempSeries.push(new Series(name, tempColor, tempValues));
 			humSeries.push(new Series(name, humColor, humValues));
-
-			idx += 1;
-			if (idx >= COLORS.length) {
-				idx = 0;
-			}
 		});
 
 		maxTemp = Math.ceil(maxTemp);

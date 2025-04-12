@@ -75,6 +75,75 @@ def settings_view(request: HTTPRequest) -> HTTPResponse:
     return render(request, 'app/settings.html', ctx)
 
 
+@dataclasses.dataclass(frozen=True)
+class DeviceFormData:
+    """
+    Form data for settings common to all devices.
+    """
+
+    RGB_HEX_RE = re.compile(r'^#[0-9A-F]{6}$')
+
+    dev_name: str
+    temp_color: str
+    hum_color: str
+
+    @classmethod
+    def from_device(cls, device: Device) -> typing.Self:
+        """
+        Load the settings from a device.
+        """
+
+        return cls(device.name, device.temp_color, device.hum_color)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, str]) -> typing.Self:
+        """
+        Load the settings from a form data dictionary. No validation is done
+        at that point.
+        """
+
+        dev_name = data.get('dev_name', '').strip()
+        temp_color = data.get('temp_color', '').strip().upper()
+        hum_color = data.get('hum_color', '').strip().upper()
+
+        return cls(dev_name, temp_color, hum_color)
+
+    def add_to_context(self, ctx: dict[str, typing.Any]) -> None:
+        """
+        Add the settings to the context so the values can be displayed
+        on the settings page.
+        """
+
+        ctx['dev_name'] = self.dev_name
+        ctx['temp_color'] = self.temp_color
+        ctx['hum_color'] = self.hum_color
+
+    def validate(self, errors: list[str]) -> None:
+        """
+        Validate the current values. If they are invalid, add error messages
+        to the provided list.
+        """
+
+        if not self.dev_name:
+            errors.append("Device name cannot be empty.")
+
+        if not self.RGB_HEX_RE.match(self.temp_color):
+            errors.append("Temperature line color is not a valid hex color.")
+
+        if not self.RGB_HEX_RE.match(self.hum_color):
+            errors.append("Humidity line color is not a valid hex color.")
+
+    def update_device(self, device: Device) -> None:
+        """
+        Update the device with the set values. They need to have been
+        successfully validated before.
+        """
+
+        device.name = self.dev_name
+        device.temp_color = self.temp_color
+        device.hum_color = self.hum_color
+
+
 @dataclasses.dataclass
 class ShellyV1HTFormData:
     """
@@ -95,7 +164,7 @@ class ShellyV1HTFormData:
 
     device: Device
     info: ShellyV1HTInfo
-    name: str
+    common: DeviceFormData
     creds: _Credentials
     cfg: _Config
 
@@ -114,7 +183,7 @@ class ShellyV1HTFormData:
         info = self.info
 
         # Update form values
-        self.name = data.get('dev_name', '').strip()
+        self.common = DeviceFormData.from_dict(data)
         self.creds.dev_uname = data.get('dev_uname', '')
         self.creds.dev_pass = data.get('dev_pass', '')
         self.cfg.temp_thresh = data.get('temp_thresh', '').strip()
@@ -123,9 +192,7 @@ class ShellyV1HTFormData:
         self.cfg.hum_off = data.get('hum_off', '').strip()
 
         # Determine “cleaned” values
-        name = self.name
-        if not name:
-            errors.append("Device name cannot be empty.")
+        self.common.validate(errors)
 
         temp_thresh = float_or_default(self.cfg.temp_thresh, default=-1)
         if not 0 <= temp_thresh <= 20:
@@ -156,7 +223,7 @@ class ShellyV1HTFormData:
             need_config_set = True
 
         if not errors:
-            device.name = name
+            self.common.update_device(device)
             info.username = self.creds.dev_uname
             info.password = self.creds.dev_pass
             info.temp_thresh = temp_thresh
@@ -176,10 +243,11 @@ class ShellyV1HTFormData:
         """
 
         creds = cls._Credentials(info.username, info.password)
+        common = DeviceFormData.from_device(device)
         cfg = cls._Config(str(info.temp_thresh), str(info.hum_thresh),
             str(info.temp_off), str(info.hum_off))
 
-        return cls(device, info, device.name, creds, cfg)
+        return cls(device, info, common, creds, cfg)
 
 
 @login_required
@@ -373,9 +441,10 @@ def _device_edit_shelly_v1_h_t(request: HTTPRequest, device: Device) -> \
         'device': device,
         'info': info,
         'form': form,
-        'dev_name': form.name,
         'message': join_lines(messages),
     }
+
+    form.common.add_to_context(ctx)
 
     return render(request, 'app/device_shelly_v1_h_t.html', ctx)
 
@@ -394,7 +463,6 @@ def _device_edit_shelly_blu_h_t(request: HTTPRequest, device: Device) -> \
 
     info = ShellyBLUHTInfo.get_one(device=device)
     enc_key = info.enc_key
-    dev_name = device.name
 
     if device.status is Device.Status.NOT_RESPONDING:
         return redirect_to_view(request, device_wait, dev_id=device.id)
@@ -402,15 +470,17 @@ def _device_edit_shelly_blu_h_t(request: HTTPRequest, device: Device) -> \
     if request.post is not None:
         data = request.post.get_form_data()
         enc_key = data.get('enc_key', enc_key)
-        dev_name = data.get('dev_name', dev_name)
+        common = DeviceFormData.from_dict(data)
 
         formatted_key = ShellyBLUHTInfo.validate_enc_key(enc_key)
         if formatted_key is None:
             messages.append("Invalid encryption key (must be a hex string of 32 "
                 "characters)")
 
-        else:
-            device.name = dev_name
+        common.validate(messages)
+
+        if not messages:
+            common.update_device(device)
             info.enc_key = enc_key
             device.save()
             info.save()
@@ -419,13 +489,17 @@ def _device_edit_shelly_blu_h_t(request: HTTPRequest, device: Device) -> \
             return redirect_to_view(request, device_edit,
                 device_id=device.ident)
 
+    else:
+        common = DeviceFormData.from_device(device)
+
     ctx = {
         'device': device,
         'info': info,
         'enc_key': enc_key,
-        'dev_name': dev_name,
         'message': join_lines(messages),
     }
+
+    common.add_to_context(ctx)
 
     return render(request, 'app/device_shelly_blu_h_t.html', ctx)
 
@@ -772,6 +846,8 @@ class DevData(typing.TypedDict):
     """
 
     name: str
+    tempColor: str
+    humColor: str
     tstamps: list[int]
     temps: list[float]
     hums: list[int]
@@ -799,6 +875,8 @@ def data_view(request: HTTPRequest) -> HTTPResponse:
     dev_results: dict[int, DevData] = {
         device.id: {
             'name': device.name,
+            'tempColor': device.temp_color,
+            'humColor': device.hum_color,
             'tstamps': [],
             'temps': [],
             'hums': [],

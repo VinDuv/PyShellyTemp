@@ -142,6 +142,11 @@ table input[type=text] {
 	background: none;
 }
 
+table input[type=color] {
+	margin: -0.40em 0;
+	vertical-align: middle;
+}
+
 hr {
 	margin: 1em 0 .5em 0;
 	border: 0;

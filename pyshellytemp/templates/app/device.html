@@ -12,11 +12,27 @@
 <tr><th colspan="2">Information</th></tr>
 <tr><td>Identifier</td><td>{{ device.ident }}</td></tr>
 <tr><td>Display name</td><td><input type="text" id="dev_name" name="dev_name" value="{{ dev_name }}" /></td></tr>
+<tr><td>Temperature line color</td><td><input type="color" id="temp_color" name="temp_color" list="temp_colors" value="{{ temp_color }}" /></td></tr>
+<tr><td>Humidity line color</td><td><input type="color" id="hum_color" name="hum_color" list="hum_colors" value="{{ hum_color }}" /></td></tr>
 <tr><td>Last report</td><td>{{ device.last_report_disp }}</td></tr>
 <tr><td>Last temperature</td><td>{{ device.temp }}</td></tr>
 <tr><td>Last humidity</td><td>{{ device.hum }}</td></tr>
 <tr><td>Report count (last 24h)</td><td>{{ device.day_report_count }}</td></tr>{% block 'dev_info_table' %}{% endblock %}
 </table>
+<datalist id="temp_colors">
+<option value="#CC0000"></option>
+<option value="#CC6700"></option>
+<option value="#CC0067"></option>
+<option value="#CC3200"></option>
+<option value="#CC0033"></option>
+</datalist>
+<datalist id="hum_colors">
+<option value="#0100CC"></option>
+<option value="#6600CC"></option>
+<option value="#0067CC"></option>
+<option value="#3300CC"></option>
+<option value="#0010CC"></option>
+</datalist>
 <input type="submit" name="save" value="Save">{% block 'form_bottom' %}{% endblock %}
 </form>
 </section>
