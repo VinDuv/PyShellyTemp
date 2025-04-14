@@ -216,4 +216,14 @@ device), then will wait for your computer to connect to the Shelly device’s
 WiFi network, and will then apply the settings. All applied settings will be
 logged in the script’s output so you can review them.
 
+Device status
+-------------
+
+The script `pyshellytemp/cron_checks.py` is designed to be run periodically
+(every 12 hour for example) by cron. It checks that all configured devices have
+a correct status, have recently sent a report, and do not have a low battery. If
+those checks fail, it prints the relevant error messages and quit with an error
+status; assuming a correct cron configuration, this will send you an email so
+you can be informed of the issue.
+
 Happy monitoring!
