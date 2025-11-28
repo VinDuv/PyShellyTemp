@@ -25,7 +25,7 @@ from bleak.backends.scanner import AdvertisementData
 try:
     from bleak.backends.bluezdbus.scanner import BlueZDiscoveryFilters
 except ImportError:
-    BlueZDiscoveryFilters = dict  # type: ignore
+    BlueZDiscoveryFilters = dict
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
