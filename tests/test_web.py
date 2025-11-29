@@ -19,7 +19,7 @@ from pyshellytemp.web import HTTPRequest, HTTPTextResponse, HTTPFileResponse
 @patch('pyshellytemp.web.routing.configure_logging', lambda: None)
 class WebTest(unittest.TestCase):
     def test_no_views(self):
-        with self.assertRaisesRegex(AssertionError, "No views are loaded\."):
+        with self.assertRaisesRegex(AssertionError, r"No views are loaded\."):
             route.get_wsgi_app()
 
     def test_basic_get(self):
@@ -87,8 +87,8 @@ class WebTest(unittest.TestCase):
         buf.seek(0)
 
         env['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
-        do_req('/', env).check_msg("413 Request Entity Too Large",
-            "Form too large")
+        msg = HTTPStatus(413).phrase
+        do_req('/', env).check_msg(f"413 {msg}", "Form too large")
         self.assertEqual(buf.tell(), 1024 * 1024)
         buf.seek(0)
 

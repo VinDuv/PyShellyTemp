@@ -347,7 +347,10 @@ class SessionTests(unittest.TestCase):
 
         with patch('pyshellytemp.util.templates', tpl_mgr), \
             patch('pyshellytemp.db.orm.database', my_db):
-            yield
+            try:
+                yield
+            finally:
+                my_db._conn.close()
 
     @staticmethod
     def _dump_set_cookie(response):

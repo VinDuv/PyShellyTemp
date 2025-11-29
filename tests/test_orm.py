@@ -526,7 +526,7 @@ class ORMTests(unittest.TestCase):
             DupDBName(None, 1)
 
         with self.assertRaisesRegex(ValueError, "The type of field 'test' in "
-            "'FieldAsUnion' cannot be a union of types \(only an optional\)"):
+            r"'FieldAsUnion' cannot be a union of types \(only an optional\)"):
             class FieldAsUnion(DBObject, table='field_as_union'):
                 test: int | float
             FieldAsUnion()
@@ -591,7 +591,7 @@ class ORMTests(unittest.TestCase):
             TestData2(td1=TestData1.new_empty())
 
         with self.assertRaisesRegex(TypeError, "TestData2 got too many "
-            "positional arguments \(max 1\)"):
+            r"positional arguments \(max 1\)"):
             TestData2(TestData1.new_empty(), TestData1.new_empty())
 
         with self.assertRaisesRegex(TypeError, "TestData2 got multiple values "
@@ -640,7 +640,7 @@ class ORMTests(unittest.TestCase):
             TestData1.get_all(int_val=42).filter(int_val=42)
 
         with self.assertRaisesRegex(ValueError, "Continuous integer slice "
-            "\[start:end\] expected"):
+            r"\[start:end\] expected"):
             TestData1.get_all()['a']
 
         with self.assertRaisesRegex(ValueError, "Query limits already set"):
