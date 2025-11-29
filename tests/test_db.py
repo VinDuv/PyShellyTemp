@@ -362,6 +362,21 @@ class DatabaseTests(unittest.TestCase):
             [44, 45],
         ])
 
+        mock_fetch.reset_mock()
+
+        order_req = DBQuery(table_name='some_table', filter=req_filter,
+            order=[], group_by=('c', 'd'))
+        res = db.select(['a', 'b'], order_req)
+        res = list(list(x) for x in res)
+
+        mock_fetch.assert_called_once_with('select a, b from some_table '
+            'where c < ? and d >= ? group by c, d;', [123, 456])
+
+        self.assertEqual(res, [
+            [42, 43],
+            [44, 45],
+        ])
+
     @patch('pyshellytemp.db.access.Database.exec_raw')
     def test_insert(self, mock_exec):
         db = Database('/invalid')
@@ -412,6 +427,12 @@ class DatabaseTests(unittest.TestCase):
         db.delete_equal('some_table', 'c', 42)
         mock_exec.assert_called_once_with('delete from some_table where c = ?;',
             (42,))
+
+        with self.assertRaisesRegex(ValueError, "group_by is not supported "
+            "for delete queries"):
+            group_req = DBQuery(table_name='some_table', filter=[],
+                order=[], group_by=('def',))
+            db.delete_matching(group_req)
 
     @patch('pyshellytemp.db.access.Database.exec_raw')
     def test_query_errors(self, mock_exec):

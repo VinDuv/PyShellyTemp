@@ -19,6 +19,7 @@ ModDict: typing.TypeAlias = dict[str, DBValue]
 DBObjTy = typing.TypeVar('DBObjTy', bound='DBObject')
 RawFieldAttrsDict: typing.TypeAlias = dict[str, RawField[typing.Any]]
 RawRowsIter: typing.TypeAlias = typing.Iterable[typing.Iterable[typing.Any]]
+GroupBy: typing.TypeAlias = str | tuple[str, ...]
 
 
 @dataclasses.dataclass(slots=True)
@@ -242,7 +243,9 @@ class TableDef(typing.Generic[DBObjTy]):
 
         self._setup_if_needed()
 
-        query = self._build_query(py_filter, order, limit, offset)
+        query = DBQuery(self.name, self._build_filter(py_filter),
+            self._build_order(order), offset, limit)
+
         for row in database.select(self.db_cols, query):
             yield self._obj_from_db(row)
 
@@ -258,7 +261,29 @@ class TableDef(typing.Generic[DBObjTy]):
         self._setup_if_needed()
 
         limit, offset = lim_off
-        query = self._build_query(py_filter, order, limit, offset)
+
+        query = DBQuery(self.name, self._build_filter(py_filter),
+            self._build_order(order), offset, limit)
+
+        return database.select(fields, query)
+
+    def get_raw_group_by(self, py_filter: AnyDict, group_by: GroupBy,
+        fields: typing.Iterable[str]) -> SelectRes:
+        """
+        Searches the database in a similar way to get_matching, but instead of
+        yielding objects, yields iterables of raw database values for the
+        specified fields.
+        """
+
+        self._setup_if_needed()
+
+        if isinstance(group_by, str):
+            group_by = (group_by,)
+
+        query = DBQuery(self.name, self._build_filter(py_filter),
+            order=(), offset=-1, max_count=-1,
+            group_by=group_by)
+
         return database.select(fields, query)
 
     def count_matching(self, py_filter: AnyDict, order: list[str], limit: int,
@@ -270,7 +295,9 @@ class TableDef(typing.Generic[DBObjTy]):
 
         self._setup_if_needed()
 
-        query = self._build_query(py_filter, order, limit, offset)
+        query = DBQuery(self.name, self._build_filter(py_filter),
+            self._build_order(order), offset, limit)
+
         res_row = next(iter(database.select(('count(*)',), query)))
         value = next(iter(res_row))
         assert isinstance(value, int), repr(value)
@@ -287,7 +314,9 @@ class TableDef(typing.Generic[DBObjTy]):
 
         self._setup_if_needed()
 
-        query = self._build_query(py_filter, order, limit, offset)
+        query = DBQuery(self.name, self._build_filter(py_filter),
+            self._build_order(order), offset, limit)
+
         database.delete_matching(query)
 
     def resolve_fk(self, obj: DBObjTy, field_name: str) -> DBObjectBase | None:
@@ -479,15 +508,6 @@ class TableDef(typing.Generic[DBObjTy]):
             self.db_cols.append(db_name)
 
         assert not self.raw_field_attrs, repr(self.raw_field_attrs)
-
-    def _build_query(self, py_filter: AnyDict, order: list[str], limit: int,
-        offset: int) -> DBQuery:
-        """
-        Build a database query from the provided parameters.
-        """
-
-        return DBQuery(self.name, self._build_filter(py_filter),
-            self._build_order(order), offset, limit)
 
     def _build_filter(self, py_filter: AnyDict) -> typing.Iterable[tuple[str,
         DBCmpOp, DBValue]]:
@@ -705,11 +725,22 @@ class Query(typing.Iterable[DBObjTy]):
         return Query(self.target_def, self.where, new_order, self.limit,
             self.offset)
 
-    def get_raw_fields(self, *fields: str) -> RawRowsIter:
+    def get_raw_fields(self, *fields: str, group_by: GroupBy = '') -> \
+        RawRowsIter:
         """
         Returns raw values for the database, as an iterable of iterables over
         the specified fields.
+        Fields can be 'count(x)', 'min(x)', etc. Use the group_by keyword
+        option to group calculated values by identical value of a field.
         """
+
+        if group_by:
+            if self.order or self.limit >= 0 or self.offset >= 0:
+                raise ValueError("group by cannot be combined with order, "
+                    "limit or offset")
+
+            return self.target_def.get_raw_group_by(self.where, group_by,
+                fields)
 
         return self.target_def.get_raw(self.where, self.order,
             (self.limit, self.offset), fields)

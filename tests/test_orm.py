@@ -28,6 +28,7 @@ def db_query_deepcopy(db_query, memo):
         order=list(deepcopy(item, memo) for item in db_query.order),
         offset=deepcopy(db_query.offset),
         max_count=deepcopy(db_query.max_count),
+        group_by=db_query.group_by,
     )
 
 
@@ -290,6 +291,63 @@ class ORMTests(unittest.TestCase):
         )
 
         self.assertIs(data, sentinel.raw_fetch_res)
+
+        # Group by fetch (single column as string)
+        mock_db.reset_mock()
+        mock_db.select.return_value = sentinel.raw_fetch_res
+
+        data = TestData1.get_all(bool_val=False).filter(enum_val=SomeEnum.VAL1,
+            str_val__lt="C", float_val__gte=1.0).get_raw_fields('id',
+            'float_val', group_by='abc')
+
+        mock_db.select.assert_called_once_with(
+            ('id', 'float_val'),
+            DBQuery(
+                table_name='testdata1',
+                filter=[
+                    ('bool_val', DBCmpOp.EQ, 0),
+                    ('enum_val', DBCmpOp.EQ, 1),
+                    ('str_val', DBCmpOp.LT, "C"),
+                    ('float_val', DBCmpOp.GTE, 1.0),
+                ],
+                order=[],
+                group_by=('abc',),
+            ),
+        )
+
+        self.assertIs(data, sentinel.raw_fetch_res)
+
+        # Group by fetch (multiple columns)
+        mock_db.reset_mock()
+        mock_db.select.return_value = sentinel.raw_fetch_res
+
+        data = TestData1.get_all(bool_val=False).filter(enum_val=SomeEnum.VAL1,
+            str_val__lt="D", float_val__gte=1.0).get_raw_fields('id',
+            'float_val', group_by=('def', 'ghi'))
+
+        mock_db.select.assert_called_once_with(
+            ('id', 'float_val'),
+            DBQuery(
+                table_name='testdata1',
+                filter=[
+                    ('bool_val', DBCmpOp.EQ, 0),
+                    ('enum_val', DBCmpOp.EQ, 1),
+                    ('str_val', DBCmpOp.LT, "D"),
+                    ('float_val', DBCmpOp.GTE, 1.0),
+                ],
+                order=[],
+                group_by=('def', 'ghi'),
+            ),
+        )
+
+        self.assertIs(data, sentinel.raw_fetch_res)
+
+        # Invalid group by fetch
+        with self.assertRaisesRegex(ValueError, "group by cannot be combined "
+            "with order, limit or offset"):
+            TestData1.get_all(bool_val=False).filter(enum_val=SomeEnum.VAL1,
+                str_val__lt="D", float_val__gte=1.0)[0:].get_raw_fields('id',
+                'float_val', group_by=('def', 'ghi'))
 
         # Complex count
         mock_db.reset_mock()

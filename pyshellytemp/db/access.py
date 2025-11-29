@@ -192,6 +192,7 @@ class DBQuery(typing.NamedTuple):
     order: typing.Iterable[tuple[str, DBOrder]]
     offset: int = -1
     max_count: int = -1
+    group_by: tuple[str, ...] = ()
 
 
 class Database:
@@ -604,6 +605,9 @@ class Database:
         Also builds the required parameter list.
         """
 
+        if query.group_by:
+            raise ValueError("group_by is not supported for delete queries")
+
         # SQLite does not support limit/offset in DELETE queries, so use a
         # delete in select construct
 
@@ -621,6 +625,7 @@ class Database:
          - from <table name>
          - where <filters>
          - order by <columns>
+         - group by <columns>
          - limit/offset
         Also builds the required parameter list.
         """
@@ -633,6 +638,11 @@ class Database:
             yield col
             yield cls.CMP_STR[cmp_op]
             params.append(db_value)
+
+        sep = cls.Separator(' group by ')
+        for group_col in query.group_by:
+            yield sep.get()
+            yield group_col
 
         sep = cls.Separator(' order by ')
         for order_col, order_val in query.order:
