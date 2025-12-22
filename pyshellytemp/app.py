@@ -643,6 +643,80 @@ def data_view(request: HTTPRequest) -> HTTPResponse:
     return HTTPTextResponse(str_results, content_type='application/json')
 
 
+class SensorValues(typing.TypedDict):
+    """ Sensor values and limit for reporting """
+    cur: float | None
+    min: float | None
+    max: float | None
+
+
+class SensorData(typing.TypedDict):
+    """ Data for a temperature/humidity sensor for reporting """
+    name: str
+    temp: SensorValues
+    hum: SensorValues
+
+
+@no_session
+@route('/sensors')
+def sensor_data(_request: HTTPRequest) -> HTTPResponse:
+    """
+    Returns the current sensor data as JSON. Values may be null if the sensor
+    if offline.
+    """
+
+    sensors: dict[int, SensorData] = {}
+
+    cur_time = datetime.datetime.now()
+    valid_limit = cur_time - OBSOLETE_INTERVAL
+    min_max_limit = cur_time - datetime.timedelta(hours=24)
+
+    for device in Device.get_all().order_by('name'):
+        if device.last_report >= valid_limit:
+            temp = device.last_temp
+            hum = device.last_hum
+        else:
+            temp = None
+            hum = None
+
+        sensors[device.id] = {
+            'name': device.name,
+            'temp': {
+                'cur': temp,
+                'min': None,
+                'max': None,
+            },
+            'hum': {
+                'cur': hum,
+                'min': None,
+                'max': None,
+            }
+        }
+
+    min_max_query = Report.get_all(tstamp__gte=min_max_limit)
+    min_max_items = min_max_query.get_raw_fields('device_id', 'min(temp)',
+        'max(temp)', 'min(hum)', 'max(hum)', group_by='device_id')
+
+    for dev_id, min_temp, max_temp, min_hum, max_hum in min_max_items:
+        sensor = sensors[dev_id]
+
+        sensor_temp = sensor['temp']
+        sensor_temp['min'] = min_temp
+        sensor_temp['max'] = max_temp
+
+        sensor_hum = sensor['hum']
+        sensor_hum['min'] = min_hum
+        sensor_hum['max'] = max_hum
+
+    results = {
+        'sensors': list(sensors.values()),
+    }
+
+    str_results = json.dumps(results, separators=(',', ':')) + '\n'
+
+    return HTTPTextResponse(str_results, content_type='application/json')
+
+
 @no_session
 @route('/autoconf')
 def shelly_v1_autoconf(request: HTTPRequest) -> HTTPResponse:
